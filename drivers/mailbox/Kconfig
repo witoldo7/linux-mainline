@@ -409,4 +409,12 @@ config AXIADO_MAILBOX
 	  Axiado SoCs.
 	  If unsure, say N.
 
+config GOOG_MBA_MBOX
+	tristate "Google Tensor MBA Mailbox"
+	help
+	  An implementation of the Google MailBox Array (MBA) driver present in
+	  Google Tensor SoCs starting with Laguna (G5). It is used for
+	  inter-processor communication between the application processor and
+	  co-processors.
+
 endif
