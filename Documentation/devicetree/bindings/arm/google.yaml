@@ -15,7 +15,8 @@ description: |
 
   Currently upstream this is devices using gs101 SoC which is found in Pixel
   6, Pixel 6 Pro and Pixel 6a and Laguna SoC canonically referred to as lga
-  found in Pixel 10, Pixel 10 Pro and Pixel 10 Pro XL.
+  found in Pixel 10, Pixel 10 Pro and Pixel 10 Pro XL, and Malibu SoC
+  canonically referred to as mbu found in the Pixel 11 family.
 
 properties:
   $nodename:
@@ -40,6 +41,13 @@ properties:
               - google,lga-frankel
               - google,lga-mustang
           - const: google,lga
+
+      # Google Tensor G6 AKA mbu (malibu) SoC and boards
+      - description: Google Pixel 11 family (Cubs).
+        items:
+          - enum:
+              - google,mbu-cubs
+          - const: google,mbu
 
   ect:
     type: object
