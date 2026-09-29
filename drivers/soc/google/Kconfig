@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config GOOGLE_CPM
+	tristate "Google Tensor Central Power Manager interface"
+	depends on ARCH_GOOGLE || COMPILE_TEST
+	depends on MAILBOX && OF
+	select AUXILIARY_BUS
+	imply GOOG_MBA_MBOX
+	default ARCH_GOOGLE
+	help
+	  Interface to the Central Power Manager (CPM) of Google Tensor SoCs
+	  starting with Tensor G6 (malibu). The CPM owns most clocks and
+	  power domains of the SoC, and this driver provides the mailbox
+	  protocol used by the CPM clock and power domain drivers.
