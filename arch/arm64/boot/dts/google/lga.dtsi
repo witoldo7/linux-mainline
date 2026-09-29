@@ -400,6 +400,22 @@
 
 			status = "disabled";
 		};
+
+		inf_smmu: iommu@35100000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x35100000 0x0 0x40000>;
+			dma-coherent;
+			/*
+			 * The eventq, gerror and priq interrupts are routed via
+			 * the Google GIA interrupt aggregators, which have no
+			 * upstream driver yet.
+			 *
+			 * Power and suspend/resume save/restore are handled by
+			 * firmware, so there is no power-domains property.
+			 */
+			#iommu-cells = <1>;
+			arm,instdata-override;
+		};
 	};
 
 	timer {
