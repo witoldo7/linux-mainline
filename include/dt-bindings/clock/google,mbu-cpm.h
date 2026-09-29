@@ -58,6 +58,8 @@
 #define MBU_LPCM_GSA               43
 
 /* Clock ids within their LPCM */
+#define MBU_AOSS_PG_AMB_SPI3_APB_CLK               13
+#define MBU_AOSS_PG_AMB_SPI3_PERI_CLK              31
 #define MBU_DPU_DP0_PIX_CLK                        0
 #define MBU_DPU_DSI0_PIX_CLK                       1
 #define MBU_DPU_DSI1_PIX_CLK                       2
