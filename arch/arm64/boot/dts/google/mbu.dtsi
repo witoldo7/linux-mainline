@@ -917,6 +917,23 @@
 			power-domains = <&cpm MBU_PD_G2D>;
 		};
 
+		wdt0: watchdog@200c4000 {
+			compatible = "google,mbu-wdt";
+			reg = <0x0 0x200c4000 0x0 0x1000>;
+			clocks = <&osc>;
+			timeout-sec = <24>;
+			/* Expiry traps to EL3, which collects the state of all CPUs. */
+		};
+
+		wdt1: watchdog@200c5000 {
+			compatible = "google,mbu-wdt";
+			reg = <0x0 0x200c5000 0x0 0x1000>;
+			clocks = <&osc>;
+			timeout-sec = <30>;
+			google,expire-to-gdmc;
+			/* Expiry makes the GDMC reset the system. */
+		};
+
 		gpu_pulse_aggr_1: interrupt-controller@34896000 {
 			compatible = "google,mbu-pulse-gia";
 			reg = <0x0 0x34896000 0x0 0x20>;
