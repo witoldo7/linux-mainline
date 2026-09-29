@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config COMMON_CLK_GOOGLE_CPM
+	tristate "Google Tensor CPM clock driver"
+	depends on GOOGLE_CPM
+	default GOOGLE_CPM
+	help
+	  Clock driver for the clocks managed by the Central Power Manager
+	  (CPM) of Google Tensor SoCs.
