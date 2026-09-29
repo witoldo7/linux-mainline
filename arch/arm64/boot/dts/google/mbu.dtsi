@@ -8,6 +8,7 @@
 /dts-v1/;
 
 #include <dt-bindings/clock/google,mbu-cpm.h>
+#include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/power/google,mbu-power.h>
@@ -262,6 +263,20 @@
 
 				ldo_18s: ldo_18s {
 					regulator-name = "ldo_18s";
+					regulator-min-microvolt = <1500000>;
+					regulator-max-microvolt = <3400000>;
+				};
+
+				/* Touchscreen analog supply */
+				ldo_26s: ldo_26s {
+					regulator-name = "ldo_26s";
+					regulator-min-microvolt = <1500000>;
+					regulator-max-microvolt = <3400000>;
+				};
+
+				/* Touchscreen digital supply */
+				ldo_27s: ldo_27s {
+					regulator-name = "ldo_27s";
 					regulator-min-microvolt = <1500000>;
 					regulator-max-microvolt = <3400000>;
 				};
@@ -722,6 +737,28 @@
 			#interrupt-cells = <1>;
 		};
 
+		aoss_spi3: spi@da2c000 {
+			compatible = "google,mbu-spi", "snps,dw-apb-ssi";
+			reg = <0x0 0x0da2c000 0x0 0x100>;
+			interrupts-extended = <&aoss_ambss_multicast_aggr_11 3>;
+			clocks = <&cpm MBU_LPCM_AOSS_PG MBU_AOSS_PG_AMB_SPI3_PERI_CLK>,
+				 <&cpm MBU_LPCM_AOSS_PG MBU_AOSS_PG_AMB_SPI3_APB_CLK>;
+			clock-names = "ssi_clk", "pclk";
+			assigned-clocks = <&cpm MBU_LPCM_AOSS_PG MBU_AOSS_PG_AMB_SPI3_PERI_CLK>;
+			assigned-clock-rates = <192000000>;
+			resets = <&cpm MBU_LPCM_AOSS_PG MBU_RST_AOSS_PG_AMB_SPI3_PERI_CFG_CLK>;
+			reset-names = "spi";
+			power-domains = <&cpm MBU_PD_AOSS_PG>;
+			num-cs = <1>;
+			cs-gpios = <&aoss_pinctrl 23 GPIO_ACTIVE_LOW>;
+			pinctrl-0 = <&aoss_spi3_func>, <&aoss_spi3_miso>, <&aoss_spi3_cs>;
+			pinctrl-names = "default";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			status = "disabled";
+		};
+
 		aoss_pg_pulse_aggr_0: interrupt-controller@d856000 {
 			compatible = "google,mbu-pulse-gia";
 			reg = <0x0 0x0d856000 0x0 0x20>;
@@ -744,6 +781,45 @@
 			#gpio-cells = <2>;
 			gpio-ranges = <&aoss_pinctrl 0 0 123>;
 			gpio-reserved-ranges = <66 4>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			interrupts-extended = <&aoss_aon_multicast_aggr_5 28>;
+			google,irq-pins = <54>;
+
+			aoss_spi3_func: spi3-func-pins {
+				pins = "XAOSS_AMB_SPI3_SCLK",
+				       "XAOSS_AMB_SPI3_MOSI";
+				function = "aoss_spi3";
+				bias-disable;
+				drive-strength = <5>;
+				input-enable;
+				output-enable;
+			};
+
+			aoss_spi3_miso: spi3-miso-pins {
+				pins = "XAOSS_AMB_SPI3_MISO";
+				function = "aoss_spi3";
+				bias-pull-down;
+				input-enable;
+				output-disable;
+			};
+
+			aoss_spi3_cs: spi3-cs-pins {
+				pins = "XAOSS_AMB_SPI3_CSn";
+				function = "aoss_gpio";
+				bias-disable;
+				drive-strength = <5>;
+				input-enable;
+				output-enable;
+			};
+
+			ts0_int: ts0-int-pins {
+				pins = "XAOSS_SC_GPIO12";
+				function = "aoss_gpio";
+				bias-pull-up;
+				input-enable;
+				output-disable;
+			};
 		};
 
 		aoss_aon_multicast_aggr_4: interrupt-controller@e602020 {
