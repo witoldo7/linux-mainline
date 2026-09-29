@@ -1329,6 +1329,22 @@ config TOUCHSCREEN_SYNAPTICS_TCM_I2C
 	  To compile this driver as a module, choose M here: the module will be
 	  called synaptics_tcm_i2c.
 
+config TOUCHSCREEN_SYNAPTICS_TCM_SPI
+	tristate "Synaptics TouchComm SPI touchscreen"
+	depends on SPI_MASTER
+	select TOUCHSCREEN_SYNAPTICS_TCM_CORE
+	help
+	  Say Y here if you have a Synaptics TouchComm (TCM) touch controller
+	  attached over SPI, such as the one of the Pixel 11 phones.
+
+	  Only controllers that boot into application mode out of their own
+	  flash are supported; there is no host firmware download.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called synaptics_tcm_spi.
+
 config TOUCHSCREEN_TPS6507X
 	tristate "TPS6507x based touchscreens"
 	depends on I2C
