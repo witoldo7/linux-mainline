@@ -898,6 +898,30 @@
 			power-domains = <&cpm MBU_PD_DPU>;
 		};
 
+		dsi0_phy: phy@f7c0000 {
+			compatible = "google,mbu-mipi-dphy";
+			reg = <0x0 0x0f7c0000 0x0 0x18000>,
+			      <0x0 0x0f7d8800 0x0 0x800>;
+			reg-names = "core", "apb";
+			clocks = <&osc>;
+			clock-names = "pllref";
+			power-domains = <&cpm MBU_PD_DPU_DSI0>;
+			#phy-cells = <0>;
+		};
+
+		dsi1_phy: phy@f7e0000 {
+			compatible = "google,mbu-mipi-dphy";
+			reg = <0x0 0x0f7e0000 0x0 0x18000>,
+			      <0x0 0x0f7f8800 0x0 0x800>;
+			reg-names = "core", "apb";
+			clocks = <&osc>;
+			clock-names = "pllref";
+			power-domains = <&cpm MBU_PD_DPU_DSI1>;
+			#phy-cells = <0>;
+
+			status = "disabled";
+		};
+
 		g2d_multicast_aggr_0: interrupt-controller@f822000 {
 			compatible = "google,mbu-level-gia";
 			reg = <0x0 0x0f822000 0x0 0x20>;
