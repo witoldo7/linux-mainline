@@ -473,6 +473,70 @@
 		#address-cells = <2>;
 		#size-cells = <2>;
 
+		amb_smmu: iommu@4190000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x04190000 0x0 0x20000>;
+			interrupts-extended = <&fabstby_pulse_aggr_0 15>,
+					      <&fabstby_pulse_aggr_0 17>,
+					      <&fabstby_pulse_aggr_0 22>;
+			interrupt-names = "eventq", "gerror", "priq";
+			dma-coherent;
+			#iommu-cells = <1>;
+
+			/*
+			 * Masters behind this SMMU may already be doing DMA when the
+			 * kernel starts, only enable it together with its consumers.
+			 */
+			status = "disabled";
+		};
+
+		fabstby_pulse_aggr_0: interrupt-controller@4371000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x04371000 0x0 0x20>;
+			interrupts = <GIC_SPI 244 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		pcie_pulse_aggr_2: interrupt-controller@49b0000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x049b0000 0x0 0x20>;
+			interrupt-parent = <&pcie_level_aggr_1>;
+			interrupts = <0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_PCIE>;
+		};
+
+		pcie_multicast_aggr_3: interrupt-controller@49b0040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x049b0040 0x0 0x20>;
+			interrupt-parent = <&pcie_level_aggr_1>;
+			interrupts = <4>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_PCIE>;
+		};
+
+		pcie_multicast_aggr_5: interrupt-controller@49b0080 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x049b0080 0x0 0x20>;
+			interrupt-parent = <&pcie_level_aggr_1>;
+			interrupts = <3>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_PCIE>;
+		};
+
+		pcie_level_aggr_1: interrupt-controller@49b00a0 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x049b00a0 0x0 0x20>;
+			interrupts = <GIC_SPI 476 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_PCIE>;
+		};
+
 		pcie_pinctrl: pinctrl@49be000 {
 			compatible = "google,mbu-pcie-pinctrl";
 			reg = <0x0 0x049be000 0x0 0x5000>;
@@ -487,6 +551,23 @@
 			status = "disabled";
 		};
 
+		gsa_pulse_aggr_2: interrupt-controller@5a1a000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x05a1a000 0x0 0x20>;
+			interrupt-parent = <&gsa_level_aggr_1>;
+			interrupts = <0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		gsa_level_aggr_1: interrupt-controller@5a1a040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x05a1a040 0x0 0x20>;
+			interrupts = <GIC_SPI 344 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
 		gdmc_pinctrl: pinctrl@6480000 {
 			compatible = "google,mbu-gdmc-pinctrl";
 			reg = <0x0 0x06480000 0x0 0x15000>;
@@ -494,6 +575,62 @@
 			#gpio-cells = <2>;
 			gpio-ranges = <&gdmc_pinctrl 0 0 21>;
 			gpio-reserved-ranges = <7 8>;
+		};
+
+		cpuacc_pulse_aggr_0: interrupt-controller@91c2000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x091c2000 0x0 0x20>;
+			interrupts = <GIC_SPI 554 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		cpuacc_multicast_aggr_6: interrupt-controller@91c2020 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x091c2020 0x0 0x20>;
+			interrupts = <GIC_SPI 555 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		cpuacc_multicast_aggr_16: interrupt-controller@91c6000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x091c6000 0x0 0x20>;
+			interrupts = <GIC_SPI 549 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		cpuacc_multicast_aggr_17: interrupt-controller@91c7000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x091c7000 0x0 0x20>;
+			interrupts = <GIC_SPI 550 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		cpuacc_multicast_aggr_18: interrupt-controller@91c8000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x091c8000 0x0 0x20>;
+			interrupts = <GIC_SPI 551 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		cpuacc_multicast_aggr_19: interrupt-controller@91c9000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x091c9000 0x0 0x20>;
+			interrupts = <GIC_SPI 552 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		cpuacc_multicast_aggr_20: interrupt-controller@91ca000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x091ca000 0x0 0x20>;
+			interrupts = <GIC_SPI 553 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
 		};
 
 		gic: interrupt-controller@9228000 {
@@ -508,6 +645,66 @@
 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH 0>;
 		};
 
+		hsion_pulse_aggr_2: interrupt-controller@a1cd000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x0a1cd000 0x0 0x20>;
+			interrupt-parent = <&hsion_level_aggr_1>;
+			interrupts = <1>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_N>;
+		};
+
+		hsion_multicast_aggr_5: interrupt-controller@a1cd060 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0a1cd060 0x0 0x20>;
+			interrupts = <GIC_SPI 354 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_N>;
+		};
+
+		hsion_multicast_aggr_6: interrupt-controller@a1cd080 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0a1cd080 0x0 0x20>;
+			interrupts = <GIC_SPI 355 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_N>;
+		};
+
+		hsion_level_aggr_1: interrupt-controller@a1cd0a0 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0a1cd0a0 0x0 0x20>;
+			interrupts = <GIC_SPI 356 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_N>;
+		};
+
+		aoss_ambss_multicast_aggr_11: interrupt-controller@d105000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0d105000 0x0 0x20>;
+			interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		aoss_pg_pulse_aggr_0: interrupt-controller@d856000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x0d856000 0x0 0x20>;
+			interrupt-parent = <&aoss_aon_multicast_aggr_8>;
+			interrupts = <0>,
+				     <1>,
+				     <2>,
+				     <3>,
+				     <4>,
+				     <5>,
+				     <6>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
 		aoss_pinctrl: pinctrl@e500000 {
 			compatible = "google,mbu-aoss-pinctrl";
 			reg = <0x0 0x0e500000 0x0 0x7b000>;
@@ -515,6 +712,59 @@
 			#gpio-cells = <2>;
 			gpio-ranges = <&aoss_pinctrl 0 0 123>;
 			gpio-reserved-ranges = <66 4>;
+		};
+
+		aoss_aon_multicast_aggr_4: interrupt-controller@e602020 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0e602020 0x0 0x20>;
+			interrupt-parent = <&aoss_aon_level_aggr_1>;
+			interrupts = <5>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		aoss_aon_multicast_aggr_5: interrupt-controller@e602040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0e602040 0x0 0x20>;
+			interrupt-parent = <&aoss_aon_level_aggr_1>;
+			interrupts = <0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		aoss_aon_multicast_aggr_6: interrupt-controller@e602060 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0e602060 0x0 0x20>;
+			interrupt-parent = <&aoss_aon_level_aggr_1>;
+			interrupts = <1>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		aoss_aon_multicast_aggr_7: interrupt-controller@e602080 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0e602080 0x0 0x20>;
+			interrupt-parent = <&aoss_aon_level_aggr_1>;
+			interrupts = <2>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		aoss_aon_multicast_aggr_8: interrupt-controller@e6020a0 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0e6020a0 0x0 0x20>;
+			interrupt-parent = <&aoss_aon_level_aggr_1>;
+			interrupts = <3>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		aoss_aon_level_aggr_1: interrupt-controller@e6020c0 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0e6020c0 0x0 0x20>;
+			interrupts = <GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
 		};
 
 		aoss_audio_pinctrl: pinctrl@e680000 {
@@ -554,6 +804,237 @@
 			};
 		};
 
+		disp_smmu: iommu@f190000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x0f190000 0x0 0x20000>;
+			interrupts-extended = <&fabdisp_pulse_aggr_0 7>,
+					      <&fabdisp_pulse_aggr_0 9>,
+					      <&fabdisp_pulse_aggr_0 14>;
+			interrupt-names = "eventq", "gerror", "priq";
+			#iommu-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+
+			/*
+			 * Masters behind this SMMU may already be doing DMA when the
+			 * kernel starts, only enable it together with its consumers.
+			 */
+			status = "disabled";
+		};
+
+		fabdisp_pulse_aggr_0: interrupt-controller@f371000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x0f371000 0x0 0x20>;
+			interrupts = <GIC_SPI 232 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		dpu_multicast_aggr_0: interrupt-controller@f46e000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0f46e000 0x0 0x20>;
+			interrupt-parent = <&dpu_level_aggr_0>;
+			interrupts = <3>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		dpu_multicast_aggr_1: interrupt-controller@f46e020 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0f46e020 0x0 0x20>;
+			interrupt-parent = <&dpu_level_aggr_0>;
+			interrupts = <0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		dpu_multicast_aggr_2: interrupt-controller@f46e040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0f46e040 0x0 0x20>;
+			interrupt-parent = <&dpu_level_aggr_0>;
+			interrupts = <1>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		dpu_multicast_aggr_3: interrupt-controller@f46e060 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0f46e060 0x0 0x20>;
+			interrupt-parent = <&dpu_level_aggr_0>;
+			interrupts = <2>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		dpu_level_aggr_0: interrupt-controller@f46e080 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0f46e080 0x0 0x20>;
+			interrupts = <GIC_SPI 229 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		dpu_pulse_aggr_3: interrupt-controller@f78f100 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x0f78f100 0x0 0x20>;
+			interrupt-parent = <&dpu_multicast_aggr_2>;
+			interrupts = <31>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		dpu_pulse_aggr_7: interrupt-controller@f78f180 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x0f78f180 0x0 0x20>;
+			interrupt-parent = <&dpu_multicast_aggr_3>;
+			interrupts = <3>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_DPU>;
+		};
+
+		g2d_multicast_aggr_0: interrupt-controller@f822000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x0f822000 0x0 0x20>;
+			interrupts = <GIC_SPI 250 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_G2D>;
+		};
+
+		g2d_pulse_aggr_3: interrupt-controller@f9d00a0 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x0f9d00a0 0x0 0x20>;
+			interrupt-parent = <&g2d_multicast_aggr_0>;
+			interrupts = <14>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_G2D>;
+		};
+
+		gpu_pulse_aggr_1: interrupt-controller@34896000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x34896000 0x0 0x20>;
+			interrupt-parent = <&gpu_multicast_aggr_5>;
+			interrupts = <13>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_GPU>;
+		};
+
+		gpu_multicast_aggr_5: interrupt-controller@34896020 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x34896020 0x0 0x20>;
+			interrupts = <GIC_SPI 334 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_GPU>;
+		};
+
+		gpu_smmu: iommu@34c00000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x34c00000 0x0 0x20000>;
+			interrupts-extended = <&gpu_pulse_aggr_1 19>,
+					      <&gpu_pulse_aggr_1 17>,
+					      <&gpu_pulse_aggr_1 16>;
+			interrupt-names = "eventq", "gerror", "priq";
+			dma-coherent;
+			#iommu-cells = <1>;
+			power-domains = <&cpm MBU_PD_GPU>;
+
+			/*
+			 * Masters behind this SMMU may already be doing DMA when the
+			 * kernel starts, only enable it together with its consumers.
+			 */
+			status = "disabled";
+		};
+
+		tpu_smmu: iommu@36100000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x36100000 0x0 0x20000>;
+			interrupts-extended = <&tpu_pulse_aggr_0 15>,
+					      <&tpu_pulse_aggr_0 13>,
+					      <&tpu_pulse_aggr_0 12>;
+			interrupt-names = "eventq", "gerror", "priq";
+			#iommu-cells = <1>;
+			power-domains = <&cpm MBU_PD_TPU>;
+
+			/*
+			 * Masters behind this SMMU may already be doing DMA when the
+			 * kernel starts, only enable it together with its consumers.
+			 */
+			status = "disabled";
+		};
+
+		tpu_pulse_aggr_0: interrupt-controller@36311000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x36311000 0x0 0x20>;
+			interrupt-parent = <&tpu_level_aggr_0>;
+			interrupts = <0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_TPU>;
+		};
+
+		tpu_level_aggr_0: interrupt-controller@36311040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x36311040 0x0 0x20>;
+			interrupts = <GIC_SPI 525 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_TPU>;
+		};
+
+		aurora_pulse_aggr_0: interrupt-controller@38061000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x38061000 0x0 0x20>;
+			interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_AURDSP>;
+		};
+
+		aurdsp_smmu: iommu@385be000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x385be000 0x0 0x20000>;
+			interrupts-extended = <&aurora_pulse_aggr_0 24>,
+					      <&aurora_pulse_aggr_0 22>,
+					      <&aurora_pulse_aggr_0 21>;
+			interrupt-names = "eventq", "gerror", "priq";
+			dma-coherent;
+			#iommu-cells = <1>;
+			power-domains = <&cpm MBU_PD_AURDSP>;
+
+			/*
+			 * Masters behind this SMMU may already be doing DMA when the
+			 * kernel starts, only enable it together with its consumers.
+			 */
+			status = "disabled";
+		};
+
+		lsioe_multicast_aggr_1: interrupt-controller@3a0d2020 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3a0d2020 0x0 0x20>;
+			interrupts = <GIC_SPI 396 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_LSIO_E>;
+		};
+
+		lsioe_multicast_aggr_2: interrupt-controller@3a0d2040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3a0d2040 0x0 0x20>;
+			interrupts = <GIC_SPI 397 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_LSIO_E>;
+		};
+
 		lsioe_pinctrl: pinctrl@3a0e0000 {
 			compatible = "google,mbu-lsioe-pinctrl";
 			reg = <0x0 0x3a0e0000 0x0 0x25000>;
@@ -565,6 +1046,42 @@
 
 			/* Needs the CPM, which is disabled for now. */
 			status = "disabled";
+		};
+
+		lsios_multicast_aggr_1: interrupt-controller@3bcd2020 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3bcd2020 0x0 0x20>;
+			interrupts = <GIC_SPI 402 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_LSIO_S>;
+		};
+
+		lsios_multicast_aggr_2: interrupt-controller@3bcd2040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3bcd2040 0x0 0x20>;
+			interrupts = <GIC_SPI 403 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_LSIO_S>;
+		};
+
+		lsios_multicast_aggr_3: interrupt-controller@3bcd2060 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3bcd2060 0x0 0x20>;
+			interrupts = <GIC_SPI 404 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_LSIO_S>;
+		};
+
+		lsios_multicast_aggr_4: interrupt-controller@3bcd2080 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3bcd2080 0x0 0x20>;
+			interrupts = <GIC_SPI 405 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_LSIO_S>;
 		};
 
 		lsios_pinctrl: pinctrl@3bce0000 {
@@ -598,6 +1115,33 @@
 			status = "disabled";
 		};
 
+		hsios_pulse_aggr_2: interrupt-controller@3c272000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3c272000 0x0 0x20>;
+			interrupts = <GIC_SPI 376 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_S>;
+		};
+
+		hsios_multicast_aggr_2: interrupt-controller@3c272040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3c272040 0x0 0x20>;
+			interrupts = <GIC_SPI 378 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_S>;
+		};
+
+		hsios_multicast_aggr_3: interrupt-controller@3c272060 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3c272060 0x0 0x20>;
+			interrupts = <GIC_SPI 379 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_HSIO_S>;
+		};
+
 		hsios_pinctrl: pinctrl@3c280000 {
 			compatible = "google,mbu-hsios-pinctrl";
 			reg = <0x0 0x3c280000 0x0 0xd000>;
@@ -619,6 +1163,176 @@
 			#gpio-cells = <2>;
 			gpio-ranges = <&hsios_stby_pinctrl 0 0 2>;
 			gpio-reserved-ranges = <1 1>;
+		};
+
+		med_smmu: iommu@3d190000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x3d190000 0x0 0x20000>;
+			interrupts-extended = <&fabmed_pulse_aggr_0 9>,
+					      <&fabmed_pulse_aggr_0 11>,
+					      <&fabmed_pulse_aggr_0 16>;
+			interrupt-names = "eventq", "gerror", "priq";
+			#iommu-cells = <1>;
+
+			/*
+			 * Masters behind this SMMU may already be doing DMA when the
+			 * kernel starts, only enable it together with its consumers.
+			 */
+			status = "disabled";
+		};
+
+		fabmed_pulse_aggr_0: interrupt-controller@3d371000 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3d371000 0x0 0x20>;
+			interrupts = <GIC_SPI 239 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		ispbe_multicast_aggr_2: interrupt-controller@3d412000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3d412000 0x0 0x20>;
+			interrupts = <GIC_SPI 385 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPBE>;
+		};
+
+		ispbe_pulse_aggr_14: interrupt-controller@3d637060 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3d637060 0x0 0x20>;
+			interrupt-parent = <&ispbe_multicast_aggr_2>;
+			interrupts = <26>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPBE>;
+		};
+
+		ispbe_pulse_aggr_15: interrupt-controller@3d637160 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3d637160 0x0 0x20>;
+			interrupt-parent = <&ispbe_multicast_aggr_2>;
+			interrupts = <27>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPBE>;
+		};
+
+		ispbe_pulse_aggr_16: interrupt-controller@3d637260 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3d637260 0x0 0x20>;
+			interrupt-parent = <&ispbe_multicast_aggr_2>;
+			interrupts = <28>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPBE>;
+		};
+
+		gcv_multicast_aggr_2: interrupt-controller@3d812000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3d812000 0x0 0x20>;
+			interrupts = <GIC_SPI 254 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_GCV>;
+		};
+
+		gcv_pulse_aggr_9: interrupt-controller@3d8a4060 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3d8a4060 0x0 0x20>;
+			interrupt-parent = <&gcv_multicast_aggr_2>;
+			interrupts = <18>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_GCV>;
+		};
+
+		gcv_pulse_aggr_10: interrupt-controller@3d8a4160 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3d8a4160 0x0 0x20>;
+			interrupt-parent = <&gcv_multicast_aggr_2>;
+			interrupts = <19>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_GCV>;
+		};
+
+		codec_3p_multicast_aggr_0: interrupt-controller@3da6a000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3da6a000 0x0 0x20>;
+			interrupts = <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_CODEC_3P>;
+		};
+
+		codec_3p_pulse_aggr_3: interrupt-controller@3da700c0 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3da700c0 0x0 0x20>;
+			interrupt-parent = <&codec_3p_multicast_aggr_0>;
+			interrupts = <3>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_CODEC_3P>;
+		};
+
+		codec_3p_pulse_aggr_7: interrupt-controller@3da700e0 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3da700e0 0x0 0x20>;
+			interrupt-parent = <&codec_3p_multicast_aggr_0>;
+			interrupts = <7>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_CODEC_3P>;
+		};
+
+		ispfe_multicast_aggr_4: interrupt-controller@3e063000 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3e063000 0x0 0x20>;
+			interrupt-parent = <&ispfe_level_aggr_1>;
+			interrupts = <1>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPFE>;
+		};
+
+		ispfe_level_aggr_1: interrupt-controller@3e063040 {
+			compatible = "google,mbu-level-gia";
+			reg = <0x0 0x3e063040 0x0 0x20>;
+			interrupts = <GIC_SPI 392 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPFE>;
+		};
+
+		ispfe_pulse_aggr_9: interrupt-controller@3e3a0120 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3e3a0120 0x0 0x20>;
+			interrupt-parent = <&ispfe_multicast_aggr_4>;
+			interrupts = <11>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPFE>;
+		};
+
+		ispfe_pulse_aggr_10: interrupt-controller@3e3a0140 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3e3a0140 0x0 0x20>;
+			interrupt-parent = <&ispfe_multicast_aggr_4>;
+			interrupts = <15>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPFE>;
+		};
+
+		ispfe_pulse_aggr_11: interrupt-controller@3e3a0160 {
+			compatible = "google,mbu-pulse-gia";
+			reg = <0x0 0x3e3a0160 0x0 0x20>;
+			interrupt-parent = <&ispfe_multicast_aggr_4>;
+			interrupts = <19>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			power-domains = <&cpm MBU_PD_ISPFE>;
 		};
 	};
 
