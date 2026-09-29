@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/regulator/ti,tps628600.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: TI TPS628600 step-down converter
+
+maintainers:
+  - Witold Olechowski <witusio@gmail.com>
+
+description:
+  I2C controlled step-down converter with a 0.4 V to 1.9875 V output in
+  12.5 mV steps, switched on and off through its enable pin.
+
+allOf:
+  - $ref: regulator.yaml#
+
+properties:
+  compatible:
+    const: ti,tps628600
+
+  reg:
+    maxItems: 1
+
+  enable-gpios:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - enable-gpios
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        regulator@40 {
+            compatible = "ti,tps628600";
+            reg = <0x40>;
+            enable-gpios = <&pmic_gpio 13 GPIO_ACTIVE_HIGH>;
+            regulator-name = "vddd";
+            regulator-min-microvolt = <1000000>;
+            regulator-max-microvolt = <1000000>;
+        };
+    };
