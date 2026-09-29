@@ -16,6 +16,35 @@
 	compatible = "google,mbu-cubs", "google,mbu";
 };
 
+&dpu {
+	status = "okay";
+};
+
+&dsi0 {
+	status = "okay";
+
+	panel@0 {
+		compatible = "google,dcsda";
+		reg = <0>;
+		reset-gpios = <&pmic_gpio 11 GPIO_ACTIVE_LOW>;
+		vddi-supply = <&buck_12s>;
+		vci-supply = <&ldo_18s>;
+		vddd-supply = <&vddd_disp>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+	};
+};
+
+&dsi0_out_port {
+	dsi0_out: endpoint {
+		remote-endpoint = <&panel_in>;
+	};
+};
+
 &lsioe_i2c4 {
 	clock-frequency = <400000>;
 
