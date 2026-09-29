@@ -107,6 +107,14 @@ config RESET_EYEQ
 	  Registers are located in a shared register region called OLB. EyeQ6H
 	  has multiple reset instances.
 
+config RESET_GOOGLE_CPM
+	tristate "Google Tensor CPM reset driver"
+	depends on GOOGLE_CPM
+	default GOOGLE_CPM
+	help
+	  Reset controller driver for the resets managed by the Central Power
+	  Manager (CPM) of Google Tensor SoCs.
+
 config RESET_GPIO
 	tristate "GPIO reset controller"
 	depends on GPIOLIB

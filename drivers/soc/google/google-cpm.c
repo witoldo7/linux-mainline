@@ -9,8 +9,8 @@
  * three payload words.
  *
  * This driver implements the message transport, the MBFS key/value service
- * used for resource votes, and spawns the clock and power-domain providers
- * as auxiliary devices.
+ * used for resource votes, and spawns the clock, power-domain and reset
+ * providers as auxiliary devices.
  *
  * Based on the downstream Pixel drivers.
  *
@@ -443,6 +443,10 @@ static int google_cpm_probe(struct platform_device *pdev)
 	if (!adev)
 		return dev_err_probe(dev, -ENODEV,
 				     "failed to create power domain device\n");
+
+	adev = devm_auxiliary_device_create(dev, "reset", NULL);
+	if (!adev)
+		return dev_err_probe(dev, -ENODEV, "failed to create reset device\n");
 
 	return 0;
 }
