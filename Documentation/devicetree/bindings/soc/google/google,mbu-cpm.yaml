@@ -44,6 +44,62 @@ properties:
   '#reset-cells':
     const: 2
 
+  pmic-regulators:
+    type: object
+    additionalProperties: false
+    description:
+      Regulators of the DA9188 ("m") and DA9189 ("s") AP PMICs, which sit on
+      a bus owned by the CPM.
+
+    properties:
+      compatible:
+        const: google,mbu-pmic-regulators
+
+      regulators:
+        type: object
+        additionalProperties: false
+
+        patternProperties:
+          '^(buck_([1-9]|1[0-3])|ldo_([1-9]|1[0-9]|2[0-8]))[ms]$':
+            type: object
+            $ref: /schemas/regulator/regulator.yaml#
+            unevaluatedProperties: false
+
+        properties:
+          buck_boost:
+            type: object
+            $ref: /schemas/regulator/regulator.yaml#
+            unevaluatedProperties: false
+
+    required:
+      - compatible
+      - regulators
+
+  gpio:
+    type: object
+    additionalProperties: false
+    description: GPIOs of the DA9188 and DA9189 AP PMICs.
+
+    properties:
+      compatible:
+        const: google,mbu-pmic-gpio
+
+      gpio-controller: true
+
+      '#gpio-cells':
+        const: 2
+
+      ngpios:
+        maximum: 32
+
+      gpio-line-names: true
+
+    required:
+      - compatible
+      - gpio-controller
+      - '#gpio-cells'
+      - ngpios
+
 required:
   - compatible
   - mboxes
@@ -63,4 +119,23 @@ examples:
         #clock-cells = <2>;
         #power-domain-cells = <1>;
         #reset-cells = <2>;
+
+        pmic-regulators {
+            compatible = "google,mbu-pmic-regulators";
+
+            regulators {
+                ldo_18s {
+                    regulator-name = "ldo_18s";
+                    regulator-min-microvolt = <1500000>;
+                    regulator-max-microvolt = <3400000>;
+                };
+            };
+        };
+
+        gpio {
+            compatible = "google,mbu-pmic-gpio";
+            gpio-controller;
+            #gpio-cells = <2>;
+            ngpios = <19>;
+        };
     };
