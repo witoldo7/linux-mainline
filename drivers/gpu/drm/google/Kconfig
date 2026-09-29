@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config DRM_GOOGLE_MBU_DSI
+	tristate "Google Tensor G6 MIPI DSI"
+	depends on DRM && OF
+	depends on ARCH_GOOGLE || COMPILE_TEST
+	select DRM_DW_MIPI_DSI2
+	select GENERIC_PHY_MIPI_DPHY
+	help
+	  Glue for the Synopsys DesignWare MIPI DSI-2 host controllers of the
+	  Google Tensor G6 (malibu) SoC.
