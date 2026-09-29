@@ -831,6 +831,17 @@ config SOPHGO_SG2042_MSI
 	  This on-chip interrupt controller enables MSI sources to be
 	  routed to the primary PLIC controller on SoC.
 
+config GOOGLE_GIA
+	bool "Google Tensor Generic Interrupt Aggregator" if COMPILE_TEST
+	default ARCH_GOOGLE
+	depends on OF
+	select IRQ_DOMAIN
+	help
+	  Support for the Generic Interrupt Aggregator (GIA) found on Google
+	  Tensor SoCs starting with Tensor G5 (laguna). Each GIA collects up
+	  to 32 interrupt lines of a subsystem and forwards them to its parent
+	  interrupt controller as a single summary interrupt.
+
 config SUNPLUS_SP7021_INTC
 	bool "Sunplus SP7021 interrupt controller" if COMPILE_TEST
 	default SOC_SP7021
