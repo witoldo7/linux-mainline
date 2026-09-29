@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interrupt-controller/google,lga-gia.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Google Tensor Generic Interrupt Aggregator (GIA)
+
+maintainers:
+  - Witold Olechowski <witusio@gmail.com>
+
+description:
+  A Generic Interrupt Aggregator collects up to 32 interrupt lines from a
+  subsystem of a Google Tensor SoC and forwards them to its parent interrupt
+  controller as a single summary interrupt. Aggregators can be chained, for
+  example a pulse aggregator feeding a level aggregator feeding the GIC.
+
+  A level aggregator mirrors the state of its input lines. A pulse aggregator
+  latches incoming pulses in status and overflow registers that software
+  clears.
+
+properties:
+  compatible:
+    enum:
+      - google,lga-level-gia
+      - google,lga-pulse-gia
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 1
+    description:
+      The index of the input line, 0 to 31.
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - interrupt-controller
+  - '#interrupt-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+
+    level_gia: interrupt-controller@350d7000 {
+        compatible = "google,lga-level-gia";
+        reg = <0x350d7000 0x10>;
+        interrupts = <GIC_SPI 156 IRQ_TYPE_LEVEL_HIGH>;
+        interrupt-controller;
+        #interrupt-cells = <1>;
+    };
+
+    interrupt-controller@350d1000 {
+        compatible = "google,lga-pulse-gia";
+        reg = <0x350d1000 0x14>;
+        interrupt-parent = <&level_gia>;
+        interrupts = <0>;
+        interrupt-controller;
+        #interrupt-cells = <1>;
+    };
