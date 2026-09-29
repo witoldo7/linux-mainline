@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config GOOGLE_MBU_PM_DOMAINS
+	tristate "Google Tensor G6 power domains"
+	depends on GOOGLE_CPM && PM
+	select PM_GENERIC_DOMAINS
+	default GOOGLE_CPM
+	help
+	  Power domain driver for the Google Tensor G6 (malibu) SoC. The
+	  domains are managed by the Central Power Manager (CPM).

@@ -4,6 +4,7 @@ obj-y					+= amlogic/
 obj-y					+= apple/
 obj-y					+= arm/
 obj-y					+= bcm/
+obj-y					+= google/
 obj-y					+= imx/
 obj-y					+= marvell/
 obj-y					+= mediatek/
