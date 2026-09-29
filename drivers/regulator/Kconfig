@@ -387,6 +387,14 @@ config REGULATOR_DA9121
 	  This driver can also be built as a module. If so, the module
 	  will be called da9121-regulator.
 
+config REGULATOR_DA9188_CPM
+	tristate "DA9188/DA9189 regulators behind the Google Tensor CPM"
+	depends on GOOGLE_CPM
+	default GOOGLE_CPM
+	help
+	  Regulators of the DA9188/DA9189 AP PMIC pair on Google Tensor G6
+	  (malibu) boards, controlled through the Central Power Manager.
+
 config REGULATOR_DA9210
 	tristate "Dialog Semiconductor DA9210 regulator"
 	depends on I2C
