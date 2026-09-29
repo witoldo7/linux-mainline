@@ -12,6 +12,7 @@
 #include <linux/math64.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
+#include <linux/of_platform.h>
 #include <linux/phy/phy.h>
 #include <linux/phy/phy-mipi-dphy.h>
 #include <linux/platform_device.h>
@@ -20,6 +21,8 @@
 #include <drm/bridge/dw_mipi_dsi2.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
+
+#include "mbu_dsi.h"
 
 /* Limit of the C/D-PHY in D-PHY mode */
 #define MBU_DSI_MAX_LANE_KBPS	4500000
@@ -32,6 +35,7 @@ struct mbu_dsi {
 	union phy_configure_opts phy_opts;
 	unsigned int lane_mbps;
 	unsigned long hs_rate;
+	const struct drm_dsc_config *dsc;
 };
 
 static int mbu_dsi_phy_init(void *priv_data)
@@ -148,6 +152,7 @@ static int mbu_dsi_host_attach(void *priv_data, struct mipi_dsi_device *device)
 	struct mbu_dsi *dsi = priv_data;
 
 	dsi->hs_rate = device->hs_rate;
+	dsi->dsc = device->dsc;
 
 	return 0;
 }
@@ -157,6 +162,7 @@ static int mbu_dsi_host_detach(void *priv_data, struct mipi_dsi_device *device)
 	struct mbu_dsi *dsi = priv_data;
 
 	dsi->hs_rate = 0;
+	dsi->dsc = NULL;
 
 	return 0;
 }
@@ -165,6 +171,35 @@ static const struct dw_mipi_dsi2_host_ops mbu_dsi_host_ops = {
 	.attach	= mbu_dsi_host_attach,
 	.detach	= mbu_dsi_host_detach,
 };
+
+/**
+ * mbu_dsi_get_dsc() - Get the DSC configuration of the panel on a DSI host
+ * @np: device tree node of the DSI host
+ *
+ * The display controller has to compress the stream itself, with the
+ * parameters the panel expects.
+ *
+ * Return: the DSC configuration, or NULL if the panel uses no compression
+ * or has not attached yet.
+ */
+const struct drm_dsc_config *mbu_dsi_get_dsc(struct device_node *np)
+{
+	struct platform_device *pdev = of_find_device_by_node(np);
+	const struct drm_dsc_config *dsc = NULL;
+	struct mbu_dsi *dsi;
+
+	if (!pdev)
+		return NULL;
+
+	dsi = platform_get_drvdata(pdev);
+	if (dsi)
+		dsc = dsi->dsc;
+
+	put_device(&pdev->dev);
+
+	return dsc;
+}
+EXPORT_SYMBOL_GPL(mbu_dsi_get_dsc);
 
 static int mbu_dsi_probe(struct platform_device *pdev)
 {
