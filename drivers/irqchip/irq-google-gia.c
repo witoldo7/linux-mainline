@@ -180,6 +180,13 @@ static const struct gia_variant gia_level = {
 	.mask	= 0x8,
 };
 
+/* Level aggregators on Tensor G6 have an extra register before enable. */
+static const struct gia_variant gia_level_mbu = {
+	.status	= 0x0,
+	.enable	= 0x8,
+	.mask	= 0xc,
+};
+
 static const struct gia_variant gia_pulse = {
 	.status		= 0x0,
 	.overflow	= 0x4,
@@ -191,6 +198,8 @@ static const struct gia_variant gia_pulse = {
 static const struct of_device_id gia_of_match[] = {
 	{ .compatible = "google,lga-level-gia", .data = &gia_level },
 	{ .compatible = "google,lga-pulse-gia", .data = &gia_pulse },
+	{ .compatible = "google,mbu-level-gia", .data = &gia_level_mbu },
+	{ .compatible = "google,mbu-pulse-gia", .data = &gia_pulse },
 	{ }
 };
 
