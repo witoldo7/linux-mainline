@@ -1,0 +1,140 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pinctrl/google,mbu-pinctrl.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Google Tensor G6 (malibu) pin controller
+
+maintainers:
+  - Witold Olechowski <witusio@gmail.com>
+
+description:
+  The Google Tensor G6 SoC has one pin controller per subsystem. Every pin
+  has its own register window with mux, pad configuration, GPIO data and
+  interrupt registers. Pins that can interrupt the CPU each have their own
+  interrupt line, usually to a Generic Interrupt Aggregator.
+
+properties:
+  compatible:
+    enum:
+      - google,mbu-aoss-audio-pinctrl
+      - google,mbu-aoss-pinctrl
+      - google,mbu-gdmc-pinctrl
+      - google,mbu-hsios-pinctrl
+      - google,mbu-hsios-stby-pinctrl
+      - google,mbu-lsioe-pinctrl
+      - google,mbu-lsios-pinctrl
+      - google,mbu-pcie-pinctrl
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    minItems: 1
+    maxItems: 4
+
+  power-domains:
+    maxItems: 1
+
+  gpio-controller: true
+
+  '#gpio-cells':
+    const: 2
+
+  gpio-ranges:
+    maxItems: 1
+
+  gpio-reserved-ranges: true
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 2
+
+  interrupts:
+    description:
+      One interrupt per pin that can interrupt the CPU.
+    minItems: 1
+    maxItems: 128
+
+  google,irq-pins:
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    description:
+      The pin number served by each entry of the interrupts property, in the
+      same order.
+    minItems: 1
+    maxItems: 128
+
+patternProperties:
+  '-pins$':
+    type: object
+    $ref: /schemas/pinctrl/pincfg-node.yaml#
+    additionalProperties: false
+
+    properties:
+      pins:
+        description: Names of the pins to configure.
+        minItems: 1
+        maxItems: 128
+
+      function:
+        description: Mux function to select, e.g. "lsios_uart3".
+
+      bias-disable: true
+      bias-pull-down: true
+      bias-pull-up: true
+      input-enable: true
+      input-disable: true
+      input-schmitt-enable: true
+      input-schmitt-disable: true
+      output-enable: true
+      output-disable: true
+      output-high: true
+      output-low: true
+
+      drive-strength:
+        minimum: 0
+        maximum: 15
+
+      slew-rate:
+        enum: [0, 1]
+
+    required:
+      - pins
+
+required:
+  - compatible
+  - reg
+  - gpio-controller
+  - '#gpio-cells'
+  - gpio-ranges
+
+dependencies:
+  interrupts: [ 'google,irq-pins', interrupt-controller, '#interrupt-cells' ]
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    lsios_pinctrl: pinctrl@3bce0000 {
+        compatible = "google,mbu-lsios-pinctrl";
+        reg = <0x3bce0000 0x44000>;
+        gpio-controller;
+        #gpio-cells = <2>;
+        gpio-ranges = <&lsios_pinctrl 0 0 68>;
+        gpio-reserved-ranges = <51 1>;
+        interrupt-controller;
+        #interrupt-cells = <2>;
+        interrupts-extended = <&lsios_gia 0>, <&lsios_gia 1>;
+        google,irq-pins = <2>, <3>;
+
+        uart3-func-pins {
+            pins = "XLSIOS_SPIU3_MISO_RXD", "XLSIOS_SPIU3_MOSI_TXD";
+            function = "lsios_uart3";
+            output-disable;
+            input-enable;
+        };
+    };
