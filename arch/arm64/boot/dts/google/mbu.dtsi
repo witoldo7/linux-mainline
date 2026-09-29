@@ -23,6 +23,13 @@
 		#clock-cells = <0>;
 	};
 
+	/* DSI host system clock, owned by the CPM and running at boot */
+	dsi_sys_clk: clock-300000000 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <300000000>;
+	};
+
 	cpus: cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -903,6 +910,27 @@
 			power-domains = <&cpm MBU_PD_DPU>;
 		};
 
+		dpu: display-controller@f600000 {
+			compatible = "google,mbu-dpu";
+			reg = <0x0 0x0f600000 0x0 0x11f000>;
+			interrupts-extended = <&dpu_multicast_aggr_1 5>,
+					      <&dpu_multicast_aggr_1 6>;
+			interrupt-names = "frame-done", "underrun";
+			power-domains = <&cpm MBU_PD_DPU_BE>,
+					<&cpm MBU_PD_DPU_FE0>,
+					<&cpm MBU_PD_DPU_DSI0>;
+			pinctrl-0 = <&dpu_te0_pins>;
+			pinctrl-names = "default";
+
+			status = "disabled";
+
+			port {
+				dpu_out_dsi0: endpoint {
+					remote-endpoint = <&dsi0_in>;
+				};
+			};
+		};
+
 		dpu_pulse_aggr_3: interrupt-controller@f78f100 {
 			compatible = "google,mbu-pulse-gia";
 			reg = <0x0 0x0f78f100 0x0 0x20>;
@@ -932,6 +960,38 @@
 			clock-names = "pllref";
 			power-domains = <&cpm MBU_PD_DPU_DSI0>;
 			#phy-cells = <0>;
+		};
+
+		dsi0: dsi@f7d8000 {
+			compatible = "google,mbu-mipi-dsi";
+			reg = <0x0 0x0f7d8000 0x0 0x800>;
+			interrupts-extended = <&dpu_multicast_aggr_3 20>;
+			clocks = <&dsi_sys_clk>, <&dsi_sys_clk>;
+			clock-names = "pclk", "sys";
+			phys = <&dsi0_phy>;
+			phy-names = "dphy";
+			power-domains = <&cpm MBU_PD_DPU_DSI0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					dsi0_in: endpoint {
+						remote-endpoint = <&dpu_out_dsi0>;
+					};
+				};
+
+				dsi0_out_port: port@1 {
+					reg = <1>;
+				};
+			};
 		};
 
 		dsi1_phy: phy@f7e0000 {
@@ -1183,6 +1243,14 @@
 			#gpio-cells = <2>;
 			gpio-ranges = <&lsios_pinctrl 0 0 68>;
 			gpio-reserved-ranges = <51 1>;
+
+			dpu_te0_pins: dpu-te0-pins {
+				pins = "XLSIOS_DPU_TE0";
+				function = "lsios_dpu";
+				bias-pull-down;
+				output-disable;
+				input-enable;
+			};
 
 			lsios_uart3_func: uart3-func-pins {
 				pins = "XLSIOS_SPIU3_MISO_RXD",
