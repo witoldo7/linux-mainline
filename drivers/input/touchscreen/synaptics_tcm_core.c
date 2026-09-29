@@ -106,6 +106,9 @@ enum syna_touch_report_code {
 	SYNA_TOUCH_REPORT_GESTURE_TRIANGLE	= 197,
 	SYNA_TOUCH_REPORT_GESTURE_INFO		= 198,
 	SYNA_TOUCH_REPORT_GESTURE_COORDINATE	= 199,
+	/* Google custom entities of the Pixel firmware */
+	SYNA_TOUCH_CUSTOM_MAJOR			= 210,
+	SYNA_TOUCH_CUSTOM_MINOR			= 211,
 };
 
 /* Object classification. Anything other than LIFT counts as a contact. */
@@ -519,9 +522,11 @@ static int syna_parse_touch_report(struct syna_tcm *ts)
 			ts->objects[obj].z = data;
 			break;
 		case SYNA_TOUCH_OBJECT_N_X_WIDTH:
+		case SYNA_TOUCH_CUSTOM_MAJOR:
 			ts->objects[obj].wx = data;
 			break;
 		case SYNA_TOUCH_OBJECT_N_Y_WIDTH:
+		case SYNA_TOUCH_CUSTOM_MINOR:
 			ts->objects[obj].wy = data;
 			break;
 		case SYNA_TOUCH_GESTURE_DOUBLE_TAP:
