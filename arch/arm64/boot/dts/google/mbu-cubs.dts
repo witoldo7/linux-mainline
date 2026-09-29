@@ -16,6 +16,25 @@
 	compatible = "google,mbu-cubs", "google,mbu";
 };
 
+&aoss_spi3 {
+	status = "okay";
+
+	touchscreen@0 {
+		compatible = "syna,tcm";
+		reg = <0>;
+		spi-max-frequency = <19200000>;
+		spi-cs-setup-delay-ns = <10000>;
+		rx-sample-delay-ns = <25>;
+		interrupt-parent = <&aoss_pinctrl>;
+		interrupts = <54 IRQ_TYPE_LEVEL_LOW>;
+		reset-gpios = <&pmic_gpio 17 GPIO_ACTIVE_LOW>;
+		vdd-supply = <&ldo_27s>;
+		avdd-supply = <&ldo_26s>;
+		pinctrl-0 = <&ts0_int>;
+		pinctrl-names = "default";
+	};
+};
+
 &dpu {
 	status = "okay";
 };
