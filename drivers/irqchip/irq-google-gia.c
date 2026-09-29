@@ -139,7 +139,7 @@ static int gia_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct gia *gia;
-	int parent_irq;
+	int i, nr_parents;
 
 	gia = devm_kzalloc(dev, sizeof(*gia), GFP_KERNEL);
 	if (!gia)
@@ -152,9 +152,9 @@ static int gia_probe(struct platform_device *pdev)
 	if (IS_ERR(gia->base))
 		return PTR_ERR(gia->base);
 
-	parent_irq = platform_get_irq(pdev, 0);
-	if (parent_irq < 0)
-		return parent_irq;
+	nr_parents = platform_irq_count(pdev);
+	if (nr_parents <= 0)
+		return nr_parents ? nr_parents : -EINVAL;
 
 	/* Mask everything, then let all lines through the input stage. */
 	writel_relaxed(0, gia->base + gia->variant->mask);
@@ -169,7 +169,19 @@ static int gia_probe(struct platform_device *pdev)
 	if (!gia->domain)
 		return -ENOMEM;
 
-	irq_set_chained_handler_and_data(parent_irq, gia_irq_handler, gia);
+	/*
+	 * Most GIAs have a single summary output. N:N aggregators have one per
+	 * input group, all served by the same handler, which scans the whole
+	 * status register.
+	 */
+	for (i = 0; i < nr_parents; i++) {
+		int parent_irq = platform_get_irq(pdev, i);
+
+		if (parent_irq < 0)
+			return parent_irq;
+
+		irq_set_chained_handler_and_data(parent_irq, gia_irq_handler, gia);
+	}
 
 	return 0;
 }
