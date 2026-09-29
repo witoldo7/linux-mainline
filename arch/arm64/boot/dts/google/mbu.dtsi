@@ -7,8 +7,10 @@
 
 /dts-v1/;
 
+#include <dt-bindings/clock/google,mbu-cpm.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/power/google,mbu-power.h>
 
 / {
 	#address-cells = <2>;
@@ -226,6 +228,20 @@
 		};
 	};
 
+	/*
+	 * Disabled until the CPM protocol has been validated on hardware, the
+	 * console must not depend on it.
+	 */
+	cpm: power-management {
+		compatible = "google,mbu-cpm";
+		mboxes = <&cpm_req_mbox>, <&cpm_resp_mbox>;
+		mbox-names = "tx", "rx";
+		#clock-cells = <2>;
+		#power-domain-cells = <1>;
+
+		status = "disabled";
+	};
+
 	psci {
 		compatible = "arm,psci-1.0";
 		method = "smc";
@@ -312,7 +328,9 @@
 			gpio-ranges = <&pcie_pinctrl 0 0 5>;
 			gpio-reserved-ranges = <4 1>;
 
-			/* Its power domain is managed by the CPM, no driver yet. */
+			power-domains = <&cpm MBU_PD_PCIE>;
+
+			/* Needs the CPM, which is disabled for now. */
 			status = "disabled";
 		};
 
@@ -359,6 +377,30 @@
 			status = "disabled";
 		};
 
+		cpm_mba: mailbox-array@ea40000 {
+			compatible = "google,mbu-mailbox-array", "google,mailbox-array";
+			reg = <0x0 0x0ea40000 0x0 0x10000>;
+			ranges = <0x0 0x0 0x0ea60000 0x2000>;
+
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			cpm_req_mbox: mailbox@0 {
+				reg = <0x0000 0x1000>;
+				interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH 0>;
+				#mbox-cells = <0>;
+				google,mba-queue-mode;
+			};
+
+			cpm_resp_mbox: mailbox@1000 {
+				reg = <0x1000 0x1000>;
+				interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH 0>;
+				#mbox-cells = <0>;
+				google,rx-payload-words = <4>;
+				google,mba-queue-mode;
+			};
+		};
+
 		lsioe_pinctrl: pinctrl@3a0e0000 {
 			compatible = "google,mbu-lsioe-pinctrl";
 			reg = <0x0 0x3a0e0000 0x0 0x25000>;
@@ -366,7 +408,9 @@
 			#gpio-cells = <2>;
 			gpio-ranges = <&lsioe_pinctrl 0 0 37>;
 
-			/* Its power domain is managed by the CPM, no driver yet. */
+			power-domains = <&cpm MBU_PD_LSIO_E_CLI_GPIO>;
+
+			/* Needs the CPM, which is disabled for now. */
 			status = "disabled";
 		};
 
@@ -409,7 +453,9 @@
 			gpio-ranges = <&hsios_pinctrl 0 0 13>;
 			gpio-reserved-ranges = <12 1>;
 
-			/* Its power domain is managed by the CPM, no driver yet. */
+			power-domains = <&cpm MBU_PD_HSIO_S>;
+
+			/* Needs the CPM, which is disabled for now. */
 			status = "disabled";
 		};
 
