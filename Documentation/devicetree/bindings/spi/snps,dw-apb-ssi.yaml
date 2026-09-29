@@ -74,6 +74,7 @@ properties:
       - description: Vendor controllers which use snps,dw-apb-ssi as fallback
         items:
           - enum:
+              - google,mbu-spi
               - mscc,ocelot-spi
               - mscc,jaguar2-spi
               - sophgo,sg2042-spi
