@@ -1440,6 +1440,14 @@ config GPIO_CS5535
 
 	  If unsure, say N.
 
+config GPIO_DA9188_CPM
+	tristate "DA9188/DA9189 GPIOs behind the Google Tensor CPM"
+	depends on GOOGLE_CPM
+	default GOOGLE_CPM
+	help
+	  GPIOs of the DA9188/DA9189 AP PMIC pair on Google Tensor G6 (malibu)
+	  boards, controlled through the Central Power Manager.
+
 config GPIO_DA9052
 	tristate "Dialog DA9052 GPIO"
 	depends on PMIC_DA9052
