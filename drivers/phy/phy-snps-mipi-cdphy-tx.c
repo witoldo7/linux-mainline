@@ -1,0 +1,1306 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Synopsys DesignWare MIPI C/D-PHY TX (G301) driver, D-PHY mode
+ *
+ * Used for the DSI outputs of the Google Tensor G6 (malibu) SoC.
+ *
+ * The PHY has a large "core" register block with the analog and lane
+ * settings and a small APB block with the PPI interface, reset and PLL
+ * controls. It is brought up with a fixed programming sequence from the IP
+ * databook, with the D-PHY timings and PLL dividers derived from the
+ * requested lane rate.
+ *
+ * Based on the downstream Pixel driver.
+ *
+ * Copyright (c) 2020 Synopsys, Inc. and/or its affiliates.
+ * Copyright 2023-2025 Google LLC
+ */
+
+#include <linux/bitfield.h>
+#include <linux/bits.h>
+#include <linux/clk.h>
+#include <linux/delay.h>
+#include <linux/io.h>
+#include <linux/iopoll.h>
+#include <linux/math.h>
+#include <linux/minmax.h>
+#include <linux/mod_devicetable.h>
+#include <linux/module.h>
+#include <linux/phy/phy.h>
+#include <linux/phy/phy-mipi-dphy.h>
+#include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
+#include <linux/units.h>
+
+/* APB block */
+#define PHY_STS				0x24
+#define PHY_STS_READY			BIT(0)
+#define PHY_STS_PLL_LOCK		BIT(1)
+
+#define PHY_STATUS_TIMEOUT_US		30000
+
+enum cdphy_bank {
+	CDPHY_CORE,
+	CDPHY_APB,
+};
+
+struct cdphy_field {
+	enum cdphy_bank bank;
+	u32 reg;
+	u32 mask;
+};
+
+#define CDPHY_FIELD(_bank, _reg, _msb, _lsb) \
+	((const struct cdphy_field){ CDPHY_##_bank, _reg, GENMASK(_msb, _lsb) })
+
+/* Registers */
+#define PLL_CFG0						0x0
+#define PLL_CFG1						0x4
+#define PLL_CFG2						0x8
+#define PLL_CFG3						0xc
+#define PLL_CFG4						0x10
+#define PLL_CFG5						0x14
+#define PLL_CFG6						0x18
+#define PLL_CFG7						0x1c
+#define PLL_CP						0x20
+#define PHY_CTRL0					0x28
+#define PHY_EXTENDED_CTRL1				0x30
+#define PPI_STARTUP_RW_COMMON_DPHY_2			0x3008
+#define PPI_STARTUP_RW_COMMON_DPHY_3			0x300c
+#define PPI_STARTUP_RW_COMMON_DPHY_6			0x3018
+#define PPI_STARTUP_RW_COMMON_DPHY_A			0x3028
+#define PPI_STARTUP_RW_COMMON_DPHY_10			0x3040
+#define PPI_STARTUP_RW_COMMON_STARTUP_1_1		0x3044
+#define PPI_CALIBCTRL_RW_COMMON_BG_0			0x3098
+#define PPI_RW_LPDCOCAL_TIMEBASE				0x3804
+#define PPI_RW_LPDCOCAL_NREF				0x3808
+#define PPI_RW_LPDCOCAL_NREF_RANGE			0x380c
+#define PPI_RW_LPDCOCAL_TWAIT_CONFIG			0x3814
+#define PPI_RW_LPDCOCAL_VT_CONFIG			0x3818
+#define PPI_RW_LPDCOCAL_COARSE_CFG			0x3820
+#define PPI_RW_HSTX_FIFO_CFG				0x38d0
+#define PPI_RW_COMMON_CFG				0x38d8
+#define PPI_RW_TERMCAL_CFG_0				0x3900
+#define PPI_RW_PLL_STARTUP_CFG_0				0x3980
+#define PPI_RW_PLL_STARTUP_CFG_1				0x3984
+#define PPI_RW_PLL_STARTUP_CFG_2				0x3988
+#define CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_2		0x4088
+#define CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3		0x408c
+#define CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_2		0x4888
+#define CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3		0x488c
+#define CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_2		0x5088
+#define CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3		0x508c
+#define CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7		0x509c
+#define CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8		0x50a0
+#define CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_2		0x5888
+#define CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3		0x588c
+#define CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_2		0x6088
+#define CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3		0x608c
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_0		0x7080
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_1		0x7084
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3		0x708c
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_4		0x7090
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_5		0x7094
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6		0x7098
+#define CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7		0x709c
+#define CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_0		0x73c0
+#define CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2		0x73c8
+#define CORE_DIG_DLANE_0_RW_LP_0				0xc100
+#define CORE_DIG_DLANE_0_RW_LP_2				0xc108
+#define CORE_DIG_DLANE_0_RW_HS_TX_0			0xc400
+#define CORE_DIG_DLANE_0_RW_HS_TX_1			0xc404
+#define CORE_DIG_DLANE_0_RW_HS_TX_3			0xc40c
+#define CORE_DIG_DLANE_0_RW_HS_TX_4			0xc410
+#define CORE_DIG_DLANE_0_RW_HS_TX_5			0xc414
+#define CORE_DIG_DLANE_0_RW_HS_TX_6			0xc418
+#define CORE_DIG_DLANE_0_RW_HS_TX_9			0xc424
+#define CORE_DIG_DLANE_0_RW_HS_TX_10			0xc428
+#define CORE_DIG_DLANE_0_RW_HS_TX_12			0xc430
+#define CORE_DIG_DLANE_1_RW_LP_0				0xc900
+#define CORE_DIG_DLANE_1_RW_LP_2				0xc908
+#define CORE_DIG_DLANE_1_RW_HS_TX_0			0xcc00
+#define CORE_DIG_DLANE_1_RW_HS_TX_1			0xcc04
+#define CORE_DIG_DLANE_1_RW_HS_TX_3			0xcc0c
+#define CORE_DIG_DLANE_1_RW_HS_TX_4			0xcc10
+#define CORE_DIG_DLANE_1_RW_HS_TX_5			0xcc14
+#define CORE_DIG_DLANE_1_RW_HS_TX_6			0xcc18
+#define CORE_DIG_DLANE_1_RW_HS_TX_9			0xcc24
+#define CORE_DIG_DLANE_1_RW_HS_TX_10			0xcc28
+#define CORE_DIG_DLANE_1_RW_HS_TX_12			0xcc30
+#define CORE_DIG_DLANE_2_RW_LP_0				0xd100
+#define CORE_DIG_DLANE_2_RW_LP_2				0xd108
+#define CORE_DIG_DLANE_2_RW_HS_TX_0			0xd400
+#define CORE_DIG_DLANE_2_RW_HS_TX_1			0xd404
+#define CORE_DIG_DLANE_2_RW_HS_TX_3			0xd40c
+#define CORE_DIG_DLANE_2_RW_HS_TX_4			0xd410
+#define CORE_DIG_DLANE_2_RW_HS_TX_5			0xd414
+#define CORE_DIG_DLANE_2_RW_HS_TX_6			0xd418
+#define CORE_DIG_DLANE_2_RW_HS_TX_9			0xd424
+#define CORE_DIG_DLANE_2_RW_HS_TX_10			0xd428
+#define CORE_DIG_DLANE_2_RW_HS_TX_12			0xd430
+#define CORE_DIG_DLANE_3_RW_LP_0				0xd900
+#define CORE_DIG_DLANE_3_RW_LP_2				0xd908
+#define CORE_DIG_DLANE_3_RW_HS_TX_0			0xdc00
+#define CORE_DIG_DLANE_3_RW_HS_TX_1			0xdc04
+#define CORE_DIG_DLANE_3_RW_HS_TX_3			0xdc0c
+#define CORE_DIG_DLANE_3_RW_HS_TX_4			0xdc10
+#define CORE_DIG_DLANE_3_RW_HS_TX_5			0xdc14
+#define CORE_DIG_DLANE_3_RW_HS_TX_6			0xdc18
+#define CORE_DIG_DLANE_3_RW_HS_TX_9			0xdc24
+#define CORE_DIG_DLANE_3_RW_HS_TX_10			0xdc28
+#define CORE_DIG_DLANE_3_RW_HS_TX_12			0xdc30
+#define CORE_DIG_DLANE_CLK_RW_LP_0			0xe100
+#define CORE_DIG_DLANE_CLK_RW_LP_2			0xe108
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_0			0xe400
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_1			0xe404
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_2			0xe408
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_3			0xe40c
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_4			0xe410
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_5			0xe414
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_6			0xe418
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_8			0xe420
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_9			0xe424
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_10			0xe428
+#define CORE_DIG_DLANE_CLK_RW_HS_TX_12			0xe430
+#define CORE_DIG_CLANE_0_RW_LP_0				0x14100
+#define CORE_DIG_CLANE_1_RW_LP_0				0x14900
+#define CORE_DIG_CLANE_2_RW_LP_0				0x15100
+
+/* Register fields */
+#define F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_0_CB_LP_DCO_EN_DLY \
+	CDPHY_FIELD(CORE, CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_0, 7, 2)
+#define F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2_GLOBAL_ULPS_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2, 12, 12)
+#define F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2_GLOBAL_ULPS_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2, 13, 13)
+#define F_CORE_DIG_CLANE_0_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_CLANE_0_RW_LP_0, 15, 12)
+#define F_CORE_DIG_CLANE_1_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_CLANE_1_RW_LP_0, 15, 12)
+#define F_CORE_DIG_CLANE_2_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_CLANE_2_RW_LP_0, 15, 12)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_0, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_10, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_12, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_1_HS_TX_1_THSZERO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_1, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_3, 7, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_4, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_5, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_6, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_HS_TX_9, 15, 0)
+#define F_CORE_DIG_DLANE_0_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_LP_0, 15, 12)
+#define F_CORE_DIG_DLANE_0_RW_LP_0_LP_0_TTAGO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_LP_0, 11, 8)
+#define F_CORE_DIG_DLANE_0_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_0_RW_LP_2, 0, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_0, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_10, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_12, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_1_HS_TX_1_THSZERO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_1, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_3, 7, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_4, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_5, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_6, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_HS_TX_9, 15, 0)
+#define F_CORE_DIG_DLANE_1_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_LP_0, 15, 12)
+#define F_CORE_DIG_DLANE_1_RW_LP_0_LP_0_TTAGO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_LP_0, 11, 8)
+#define F_CORE_DIG_DLANE_1_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_1_RW_LP_2, 0, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_0, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_10, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_12, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_1_HS_TX_1_THSZERO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_1, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_3, 7, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_4, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_5, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_6, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_HS_TX_9, 15, 0)
+#define F_CORE_DIG_DLANE_2_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_LP_0, 15, 12)
+#define F_CORE_DIG_DLANE_2_RW_LP_0_LP_0_TTAGO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_LP_0, 11, 8)
+#define F_CORE_DIG_DLANE_2_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_2_RW_LP_2, 0, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_0, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_10, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_12, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_1_HS_TX_1_THSZERO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_1, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_3, 7, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_4, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_5, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_6, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_HS_TX_9, 15, 0)
+#define F_CORE_DIG_DLANE_3_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_LP_0, 15, 12)
+#define F_CORE_DIG_DLANE_3_RW_LP_0_LP_0_TTAGO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_LP_0, 11, 8)
+#define F_CORE_DIG_DLANE_3_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_3_RW_LP_2, 0, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_0, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_10, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_12, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_1_HS_TX_1_THSZERO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_1, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_2_HS_TX_2_TCLKPRE_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_2, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_3, 7, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_4, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_5, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_6, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_8_HS_TX_8_TCLKPOST_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_8, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_HS_TX_9, 15, 0)
+#define F_CORE_DIG_DLANE_CLK_RW_LP_0_LP_0_ITMINRX_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_LP_0, 15, 12)
+#define F_CORE_DIG_DLANE_CLK_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG \
+	CDPHY_FIELD(CORE, CORE_DIG_DLANE_CLK_RW_LP_2, 0, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_0_OA_CB_HSTXLB_DCO_CLK90_EN_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_0, 15, 15)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_1_OA_CB_HSTXLB_DCO_CLK0_EN_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_1, 15, 15)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3_OA_CB_HSTXLB_DCO_CLK0_EN_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3_OA_CB_HSTXLB_DCO_CLK90_EN_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3, 9, 9)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_4_OA_CB_CAL_SINK_EN_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_4, 15, 15)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_5_OA_CB_SEL_45OHM_50OHM \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_5, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6_OA_CB_HSTXLB_DCO_EN_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6, 13, 13)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6_OA_CB_HSTXLB_DCO_TUNE_CLKDIG_EN_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6, 14, 14)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7_OA_CB_HSTXLB_DCO_EN_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7, 9, 9)
+#define F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7_OA_CB_HSTXLB_DCO_TUNE_CLKDIG_EN_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7, 10, 10)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_2_OA_LANE0_SEL_LANE_CFG \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_2, 0, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3_OA_LANE0_HSTX_SEL_CLKLB \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3_OA_LANE0_HSTX_SEL_PHASE0 \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3, 4, 4)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_2_OA_LANE1_SEL_LANE_CFG \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_2, 0, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3_OA_LANE1_HSTX_SEL_CLKLB \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3_OA_LANE1_HSTX_SEL_PHASE0 \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3, 4, 4)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_2_OA_LANE2_SEL_LANE_CFG \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_2, 0, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3_OA_LANE2_HSTX_SEL_CLKLB \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3_OA_LANE2_HSTX_SEL_PHASE0 \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3, 4, 4)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7_OA_LANE2_LPRX_CD_PON_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7, 7, 7)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7_OA_LANE2_LPRX_LP_PON_OVR_EN \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7, 6, 6)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8_OA_LANE2_LPRX_CD_PON_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8, 3, 2)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8_OA_LANE2_LPRX_LP_PON_OVR_VAL \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8, 1, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_2_OA_LANE3_SEL_LANE_CFG \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_2, 0, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3_OA_LANE3_HSTX_SEL_CLKLB \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3_OA_LANE3_HSTX_SEL_PHASE0 \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3, 4, 4)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_2_OA_LANE4_SEL_LANE_CFG \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_2, 0, 0)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3_OA_LANE4_HSTX_SEL_CLKLB \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3, 8, 8)
+#define F_CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3_OA_LANE4_HSTX_SEL_PHASE0 \
+	CDPHY_FIELD(CORE, CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3, 4, 4)
+#define F_PHY_CTRL0_RW_PHY_MODE \
+	CDPHY_FIELD(APB, PHY_CTRL0, 8, 8)
+#define F_PHY_CTRL0_RW_PHY_RST_N \
+	CDPHY_FIELD(APB, PHY_CTRL0, 0, 0)
+#define F_PHY_CTRL0_RW_SHUTDOWN_N \
+	CDPHY_FIELD(APB, PHY_CTRL0, 1, 1)
+#define F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_0 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 8, 8)
+#define F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_1 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 9, 9)
+#define F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_2 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 10, 10)
+#define F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_3 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 11, 11)
+#define F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_DCK \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 7, 7)
+#define F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_0 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 17, 16)
+#define F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_1 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 19, 18)
+#define F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_2 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 21, 20)
+#define F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_3 \
+	CDPHY_FIELD(APB, PHY_EXTENDED_CTRL1, 23, 22)
+#define F_PLL_CFG0_RW_PLL_ATB_SENSE_SEL \
+	CDPHY_FIELD(APB, PLL_CFG0, 0, 0)
+#define F_PLL_CFG0_RW_PLL_CLKOUTEN_LEFT \
+	CDPHY_FIELD(APB, PLL_CFG0, 27, 27)
+#define F_PLL_CFG0_RW_PLL_CLKSEL \
+	CDPHY_FIELD(APB, PLL_CFG0, 2, 1)
+#define F_PLL_CFG0_RW_PLL_OPMODE \
+	CDPHY_FIELD(APB, PLL_CFG0, 8, 4)
+#define F_PLL_CFG1_RW_PLL_PRG_31_0 \
+	CDPHY_FIELD(APB, PLL_CFG1, 31, 0)
+#define F_PLL_CFG2_RW_PLL_PRG_32 \
+	CDPHY_FIELD(APB, PLL_CFG2, 0, 0)
+#define F_PLL_CFG2_RW_PLL_TH1 \
+	CDPHY_FIELD(APB, PLL_CFG2, 13, 4)
+#define F_PLL_CFG2_RW_PLL_TH2 \
+	CDPHY_FIELD(APB, PLL_CFG2, 21, 14)
+#define F_PLL_CFG2_RW_PLL_TH3 \
+	CDPHY_FIELD(APB, PLL_CFG2, 29, 22)
+#define F_PLL_CFG3_RW_PLL_FRACN_CFG_UPDATE_EN \
+	CDPHY_FIELD(APB, PLL_CFG3, 30, 30)
+#define F_PLL_CFG3_RW_PLL_FRACN_EN \
+	CDPHY_FIELD(APB, PLL_CFG3, 31, 31)
+#define F_PLL_CFG3_RW_PLL_M \
+	CDPHY_FIELD(APB, PLL_CFG3, 23, 12)
+#define F_PLL_CFG3_RW_PLL_MINT \
+	CDPHY_FIELD(APB, PLL_CFG3, 11, 0)
+#define F_PLL_CFG3_RW_PLL_N \
+	CDPHY_FIELD(APB, PLL_CFG3, 29, 24)
+#define F_PLL_CFG4_RW_PLL_FRAC_DEN \
+	CDPHY_FIELD(APB, PLL_CFG4, 15, 0)
+#define F_PLL_CFG5_RW_PLL_STEPSIZE \
+	CDPHY_FIELD(APB, PLL_CFG5, 20, 0)
+#define F_PLL_CFG6_RW_PLL_SPREAD_TYPE \
+	CDPHY_FIELD(APB, PLL_CFG6, 2, 1)
+#define F_PLL_CFG6_RW_PLL_SSC_EN \
+	CDPHY_FIELD(APB, PLL_CFG6, 0, 0)
+#define F_PLL_CFG6_RW_PLL_SSC_PEAK \
+	CDPHY_FIELD(APB, PLL_CFG6, 22, 3)
+#define F_PLL_CFG7_RW_PLL_FRAC_QUOT \
+	CDPHY_FIELD(APB, PLL_CFG7, 15, 0)
+#define F_PLL_CFG7_RW_PLL_FRAC_REM \
+	CDPHY_FIELD(APB, PLL_CFG7, 31, 16)
+#define F_PLL_CP_RW_PLL_CPBIAS_CNTRL \
+	CDPHY_FIELD(APB, PLL_CP, 26, 20)
+#define F_PLL_CP_RW_PLL_GMP_CNTRL \
+	CDPHY_FIELD(APB, PLL_CP, 19, 18)
+#define F_PLL_CP_RW_PLL_INT_CNTRL \
+	CDPHY_FIELD(APB, PLL_CP, 17, 12)
+#define F_PLL_CP_RW_PLL_PROP_CNTRL \
+	CDPHY_FIELD(APB, PLL_CP, 11, 6)
+#define F_PLL_CP_RW_PLL_VCO_CNTRL_0_2 \
+	CDPHY_FIELD(APB, PLL_CP, 2, 0)
+#define F_PLL_CP_RW_PLL_VCO_CNTRL_3_5 \
+	CDPHY_FIELD(APB, PLL_CP, 5, 3)
+#define F_PPI_CALIBCTRL_RW_COMMON_BG_0_BG_MAX_COUNTER \
+	CDPHY_FIELD(CORE, PPI_CALIBCTRL_RW_COMMON_BG_0, 8, 0)
+#define F_PPI_RW_COMMON_CFG_CFG_CLK_DIV_FACTOR \
+	CDPHY_FIELD(CORE, PPI_RW_COMMON_CFG, 1, 0)
+#define F_PPI_RW_HSTX_FIFO_CFG_TXDATATRANSFERENHS_SEL \
+	CDPHY_FIELD(CORE, PPI_RW_HSTX_FIFO_CFG, 0, 0)
+#define F_PPI_RW_LPDCOCAL_COARSE_CFG_NCOARSE_START \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_COARSE_CFG, 1, 0)
+#define F_PPI_RW_LPDCOCAL_NREF_LPCDCOCAL_NREF \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_NREF, 10, 0)
+#define F_PPI_RW_LPDCOCAL_NREF_RANGE_LPCDCOCAL_NREF_RANGE \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_NREF_RANGE, 4, 0)
+#define F_PPI_RW_LPDCOCAL_TIMEBASE_LPCDCOCAL_TIMEBASE \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_TIMEBASE, 9, 0)
+#define F_PPI_RW_LPDCOCAL_TWAIT_CONFIG_LPCDCOCAL_TWAIT_COARSE \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_TWAIT_CONFIG, 8, 0)
+#define F_PPI_RW_LPDCOCAL_TWAIT_CONFIG_LPCDCOCAL_TWAIT_PON \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_TWAIT_CONFIG, 15, 9)
+#define F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_TWAIT_FINE \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_VT_CONFIG, 15, 7)
+#define F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_USE_IDEAL_NREF \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_VT_CONFIG, 1, 1)
+#define F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_VT_NREF_RANGE \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_VT_CONFIG, 6, 2)
+#define F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_VT_TRACKING_EN \
+	CDPHY_FIELD(CORE, PPI_RW_LPDCOCAL_VT_CONFIG, 0, 0)
+#define F_PPI_RW_PLL_STARTUP_CFG_0_PLL_RST_TIME \
+	CDPHY_FIELD(CORE, PPI_RW_PLL_STARTUP_CFG_0, 9, 0)
+#define F_PPI_RW_PLL_STARTUP_CFG_1_PLL_GEAR_SHIFT_TIME \
+	CDPHY_FIELD(CORE, PPI_RW_PLL_STARTUP_CFG_1, 9, 0)
+#define F_PPI_RW_PLL_STARTUP_CFG_2_PLL_LOCK_DET_TIME \
+	CDPHY_FIELD(CORE, PPI_RW_PLL_STARTUP_CFG_2, 9, 0)
+#define F_PPI_RW_TERMCAL_CFG_0_TERMCAL_TIMER \
+	CDPHY_FIELD(CORE, PPI_RW_TERMCAL_CFG_0, 6, 0)
+#define F_PPI_STARTUP_RW_COMMON_DPHY_10_PHY_READY_ADDR \
+	CDPHY_FIELD(CORE, PPI_STARTUP_RW_COMMON_DPHY_10, 7, 0)
+#define F_PPI_STARTUP_RW_COMMON_DPHY_2_RCAL_ADDR \
+	CDPHY_FIELD(CORE, PPI_STARTUP_RW_COMMON_DPHY_2, 7, 0)
+#define F_PPI_STARTUP_RW_COMMON_DPHY_3_PLL_START_ADDR \
+	CDPHY_FIELD(CORE, PPI_STARTUP_RW_COMMON_DPHY_3, 7, 0)
+#define F_PPI_STARTUP_RW_COMMON_DPHY_6_LP_DCO_CAL_ADDR \
+	CDPHY_FIELD(CORE, PPI_STARTUP_RW_COMMON_DPHY_6, 7, 0)
+#define F_PPI_STARTUP_RW_COMMON_DPHY_A_HIBERNATE_ADDR \
+	CDPHY_FIELD(CORE, PPI_STARTUP_RW_COMMON_DPHY_A, 7, 0)
+#define F_PPI_STARTUP_RW_COMMON_STARTUP_1_1_PHY_READY_DLY \
+	CDPHY_FIELD(CORE, PPI_STARTUP_RW_COMMON_STARTUP_1_1, 11, 0)
+
+/* PLL and D-PHY timing calculation */
+#define MIN_DATA_RATE_MBPS		80
+#define MAX_DATA_RATE_MBPS		4500
+#define F_LOOP_COMP_MIN_KHZ		19200
+#define F_LOOP_COMP_MAX_KHZ		64000
+#define MAX_N				16
+#define F_VCO_OSC_MIN_KHZ		2000000
+#define F_VCO_OSC_MAX_KHZ		4500000
+#define MIN_LOG2_P			1
+#define MAX_LOG2_P			6
+#define LP_DCO_CLOCK_PERIOD_PS		4770
+#define LPX_IO_SR0_FALL_DELAY_PS	12500
+#define DPHY_D2A_HS_TX_DELAY		3
+#define T_LPX_PS			55000
+#define T_CLK_PREPARE_PS		73150
+#define T_CLK_TRAIL_PS			60000
+#define T_CLK_PREPARE_PLUS_CLK_ZERO_PS	300000
+#define HS_TX_3_TLPTXOVERLAP_REG	2
+#define HS_TX_10_TLP11INIT_DCO_REG	52
+#define HS_TX_4_TLPX_DCO_REG		11
+#define HS_TX_9_THSPRPR_DCO_REG		17
+#define HS_TX_6_TLP11END_DCO_REG	52
+#define HS_TX_12_THSEXIT_DCO_REG	23
+
+struct pll_charge_pump_cfg {
+	u32 pll_vco_cntrl_2_0;
+	u32 cpbias_cntrl;
+	u32 gmp_cntrl;
+	u32 int_cntrl;
+	u32 prop_cntrl;
+};
+
+struct pll_charge_pump_entry {
+	u32 vco_min_khz;
+	u32 vco_max_khz;
+	u32 pll_vco_cntrl_5_3;
+	struct pll_charge_pump_cfg cfg;
+};
+
+/* Charge pump settings per VCO output range, from the IP databook. */
+static const struct pll_charge_pump_entry pll_charge_pump_table[] = {
+	{ 1706250, 2250000, 0, { 0,  0, 1, 8, 16 } },
+	{ 1413750, 1793750, 0, { 0,  0, 1, 8, 16 } },
+	{ 1170000, 1486260, 0, { 3,  0, 1, 8, 16 } },
+	{  975000, 1230000, 0, { 7, 16, 1, 8, 16 } },
+	{  853125, 1025000, 1, { 0,  0, 1, 8, 16 } },
+	{  706875,  896875, 1, { 0,  0, 1, 8, 16 } },
+	{  585000,  743125, 1, { 3,  0, 1, 8, 16 } },
+	{  487500,  615000, 1, { 7, 16, 1, 8, 16 } },
+	{  426560,  512500, 2, { 0,  0, 1, 8, 16 } },
+	{  353400,  484400, 2, { 0,  0, 1, 8, 16 } },
+	{  292500,  371500, 2, { 3,  0, 1, 8, 16 } },
+	{  243750,  307500, 2, { 7, 16, 1, 8, 16 } },
+	{  213300,  256250, 3, { 0,  0, 1, 8, 16 } },
+	{  176720,  224200, 3, { 0,  0, 1, 8, 16 } },
+	{  146250,  185780, 3, { 3,  0, 1, 8, 16 } },
+	{  121880,  153750, 3, { 7, 16, 1, 8, 16 } },
+	{  106640,  125120, 4, { 0,  0, 1, 8, 16 } },
+	{   88360,  112100, 4, { 0,  0, 1, 8, 16 } },
+	{   73130,   92900, 4, { 3,  0, 1, 8, 16 } },
+	{   60930,   76870, 4, { 7, 16, 1, 8, 16 } },
+	{   53320,   64000, 5, { 0,  0, 1, 8, 16 } },
+	{   44180,   56000, 5, { 0,  0, 1, 8, 16 } },
+	{   40000,   46440, 5, { 3,  0, 1, 8, 16 } },
+};
+
+struct pll_config {
+	u32 pll_n;
+	u32 pll_m;
+	u32 pll_vco_cntrl_5_3;
+	u32 pll_ssc_frac_en;
+	u32 pll_mint;
+	u32 pll_frac_quote;
+	u32 pll_frac_rem;
+	u32 pll_frac_den;
+	u32 pll_ssc_en;
+	u32 pll_ssc_peak;
+	u32 pll_ssc_stepsize;
+	const struct pll_charge_pump_cfg *charge_pump_cfg;
+};
+
+/* Timing register values shared by the four data lanes, and the clock lane. */
+struct dphy_hs_regs {
+	u32 core_dig_dlane_clk_rw_hs_tx_0_hs_tx_0_thstrail_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_1_hs_tx_1_thszero_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_2_hs_tx_2_tclkpre_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_3_hs_tx_3_tlptxoverlap_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_4_hs_tx_4_tlpx_dco_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_5_hs_tx_5_thstrail_dco_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_6_hs_tx_6_tlp11end_dco_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_8_hs_tx_8_tclkpost_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_9_hs_tx_9_thsprpr_dco_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_10_hs_tx_10_tlp11init_dco_reg;
+	u32 core_dig_dlane_clk_rw_hs_tx_12_hs_tx_12_thsexit_dco_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_0_hs_tx_0_thstrail_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_1_hs_tx_1_thszero_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_3_hs_tx_3_tlptxoverlap_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_4_hs_tx_4_tlpx_dco_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_5_hs_tx_5_thstrail_dco_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_6_hs_tx_6_tlp11end_dco_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_9_hs_tx_9_thsprpr_dco_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_10_hs_tx_10_tlp11init_dco_reg;
+	u32 core_dig_dlane_n_rw_hs_tx_12_hs_tx_12_thsexit_dco_reg;
+};
+
+struct cdphy {
+	struct device *dev;
+	void __iomem *core;
+	void __iomem *apb;
+	struct clk *pllref;
+	struct phy *phy;
+
+	struct pll_config pll_config;
+	struct dphy_hs_regs dphy_regs;
+};
+
+static void cdphy_wf(struct cdphy *p, struct cdphy_field f, u32 val)
+{
+	void __iomem *reg = (f.bank == CDPHY_CORE ? p->core : p->apb) + f.reg;
+	u32 tmp;
+
+	tmp = readl(reg) & ~f.mask;
+	tmp |= (val << __ffs(f.mask)) & f.mask;
+	writel(tmp, reg);
+}
+
+static int cdphy_pll_calc(u32 datarate_mbps, u32 f_clkin_khz,
+			  struct pll_config *cfg)
+{
+	/*
+	 * f_clkin --1/n--> f_vco_in --*m_int.m_frac--> f_vco_osc --1/p-->
+	 * f_vco_out --*2--> datarate
+	 */
+	u32 n, f_vco_in_khz, f_vco_out_khz, f_vco_osc_khz = 0;
+	u32 m_int, m_frac, log2_p;
+	int idx = -1;
+	unsigned int i;
+
+	memset(cfg, 0, sizeof(*cfg));
+
+	if (f_clkin_khz < F_LOOP_COMP_MIN_KHZ)
+		return -EINVAL;
+
+	n = 1;
+	while (f_clkin_khz % n == 0 && f_clkin_khz / n > F_LOOP_COMP_MAX_KHZ && n <= MAX_N)
+		n++;
+	if (f_clkin_khz % n || f_clkin_khz / n < F_LOOP_COMP_MIN_KHZ || n > MAX_N)
+		return -EINVAL;
+
+	f_vco_in_khz = f_clkin_khz / n;
+	f_vco_out_khz = datarate_mbps * 1000 / 2;
+
+	/* Pick the smallest post divider that has a charge pump setting. */
+	for (log2_p = MIN_LOG2_P; log2_p <= MAX_LOG2_P && idx < 0; log2_p++) {
+		f_vco_osc_khz = f_vco_out_khz << log2_p;
+		if (f_vco_osc_khz < F_VCO_OSC_MIN_KHZ || f_vco_osc_khz > F_VCO_OSC_MAX_KHZ)
+			continue;
+
+		for (i = 0; i < ARRAY_SIZE(pll_charge_pump_table); i++) {
+			const struct pll_charge_pump_entry *e = &pll_charge_pump_table[i];
+
+			if (e->vco_min_khz <= f_vco_out_khz &&
+			    e->vco_max_khz >= f_vco_out_khz &&
+			    e->pll_vco_cntrl_5_3 == log2_p - 1) {
+				idx = i;
+				break;
+			}
+		}
+	}
+	if (idx < 0)
+		return -EINVAL;
+	log2_p--;
+
+	cfg->pll_n = n - 1;
+	cfg->pll_vco_cntrl_5_3 = log2_p - 1;
+	cfg->charge_pump_cfg = &pll_charge_pump_table[idx].cfg;
+
+	if (f_vco_osc_khz % f_vco_in_khz == 0) {
+		/* Integer mode */
+		m_int = f_vco_osc_khz / f_vco_in_khz;
+		cfg->pll_m = m_int * 2 - 32;
+	} else {
+		/* Fractional mode, with a resolution of 0.5 */
+		m_int = f_vco_osc_khz * 2 / f_vco_in_khz;
+		m_frac = (u64)(f_vco_osc_khz * 2 - f_vco_in_khz * m_int) * BIT(16) /
+			 f_vco_in_khz / 2;
+		cfg->pll_ssc_frac_en = 1;
+		cfg->pll_mint = m_int - 32;
+		cfg->pll_frac_quote = m_frac;
+		cfg->pll_frac_den = 1;
+	}
+
+	return 0;
+}
+
+static void cdphy_dphy_timing_calc(u32 datarate_mbps, struct dphy_hs_regs *regs)
+{
+	/* One UI in ps at the given rate in Mbps */
+	u32 ui_ps = DIV_ROUND_CLOSEST(1000000, datarate_mbps);
+	u32 t_word_clk_ps = 8 * ui_ps;
+	u32 t_hs_prepare_ps = DIV_ROUND_CLOSEST((40000 + 4 * ui_ps + 85000 + 6 * ui_ps) * 11, 20);
+	u32 t_clk_post_ps = DIV_ROUND_CLOSEST((60000 + 52 * ui_ps) * 11, 10);
+	u32 t_hs_prepare_plus_hszero_ps = 145000 + 10 * ui_ps;
+	u32 t_hs_zero_ps = t_hs_prepare_plus_hszero_ps - t_hs_prepare_ps;
+	u32 t_hs_trail_ps = max(8 * ui_ps, 60000 + 4 * ui_ps);
+	u32 t_clk_zero_ps = DIV_ROUND_CLOSEST((T_CLK_PREPARE_PLUS_CLK_ZERO_PS -
+					       T_CLK_PREPARE_PS) * 11, 10);
+	u32 t_eot_ps = 105000 + 12 * ui_ps;
+	u32 t_clk_trail_adj_ps = DIV_ROUND_CLOSEST(T_CLK_TRAIL_PS + t_eot_ps, 2);
+	u32 t_hs_trail_adj_ps = DIV_ROUND_CLOSEST(t_hs_trail_ps + t_eot_ps, 2);
+	int thszero;
+
+	regs->core_dig_dlane_clk_rw_hs_tx_3_hs_tx_3_tlptxoverlap_reg = HS_TX_3_TLPTXOVERLAP_REG;
+	regs->core_dig_dlane_clk_rw_hs_tx_10_hs_tx_10_tlp11init_dco_reg =
+		HS_TX_10_TLP11INIT_DCO_REG;
+	regs->core_dig_dlane_clk_rw_hs_tx_4_hs_tx_4_tlpx_dco_reg = HS_TX_4_TLPX_DCO_REG;
+	regs->core_dig_dlane_clk_rw_hs_tx_9_hs_tx_9_thsprpr_dco_reg = HS_TX_9_THSPRPR_DCO_REG;
+	regs->core_dig_dlane_clk_rw_hs_tx_2_hs_tx_2_tclkpre_reg = DPHY_D2A_HS_TX_DELAY;
+	regs->core_dig_dlane_clk_rw_hs_tx_1_hs_tx_1_thszero_reg =
+		DIV_ROUND_UP(T_LPX_PS + T_CLK_PREPARE_PS + t_clk_zero_ps +
+			     5 * LP_DCO_CLOCK_PERIOD_PS - 3 * t_word_clk_ps,
+			     t_word_clk_ps) - 1;
+	regs->core_dig_dlane_clk_rw_hs_tx_0_hs_tx_0_thstrail_reg =
+		DIV_ROUND_UP(t_clk_trail_adj_ps, t_word_clk_ps) - 1 + DPHY_D2A_HS_TX_DELAY;
+	regs->core_dig_dlane_clk_rw_hs_tx_5_hs_tx_5_thstrail_dco_reg =
+		DIV_ROUND_CLOSEST(DPHY_D2A_HS_TX_DELAY * t_word_clk_ps + t_clk_trail_adj_ps -
+				  t_word_clk_ps - 4 * LP_DCO_CLOCK_PERIOD_PS,
+				  LP_DCO_CLOCK_PERIOD_PS) - 1;
+	regs->core_dig_dlane_clk_rw_hs_tx_8_hs_tx_8_tclkpost_reg =
+		DIV_ROUND_UP(t_clk_post_ps, t_word_clk_ps) - 3;
+	regs->core_dig_dlane_clk_rw_hs_tx_6_hs_tx_6_tlp11end_dco_reg = HS_TX_6_TLP11END_DCO_REG;
+	regs->core_dig_dlane_clk_rw_hs_tx_12_hs_tx_12_thsexit_dco_reg = HS_TX_12_THSEXIT_DCO_REG;
+
+	regs->core_dig_dlane_n_rw_hs_tx_3_hs_tx_3_tlptxoverlap_reg = HS_TX_3_TLPTXOVERLAP_REG;
+	regs->core_dig_dlane_n_rw_hs_tx_10_hs_tx_10_tlp11init_dco_reg = HS_TX_10_TLP11INIT_DCO_REG;
+	regs->core_dig_dlane_n_rw_hs_tx_4_hs_tx_4_tlpx_dco_reg = HS_TX_4_TLPX_DCO_REG;
+	regs->core_dig_dlane_n_rw_hs_tx_9_hs_tx_9_thsprpr_dco_reg =
+		DIV_ROUND_UP(LPX_IO_SR0_FALL_DELAY_PS + t_hs_prepare_ps,
+			     LP_DCO_CLOCK_PERIOD_PS) - 1;
+	thszero = DIV_ROUND_UP(T_LPX_PS + t_hs_prepare_ps + t_hs_zero_ps +
+			       5 * LP_DCO_CLOCK_PERIOD_PS - 3 * t_word_clk_ps,
+			       t_word_clk_ps) - 1;
+	regs->core_dig_dlane_n_rw_hs_tx_1_hs_tx_1_thszero_reg = max(thszero, 0);
+	regs->core_dig_dlane_n_rw_hs_tx_0_hs_tx_0_thstrail_reg =
+		DIV_ROUND_UP(t_hs_trail_adj_ps, t_word_clk_ps) - 1 + DPHY_D2A_HS_TX_DELAY;
+	regs->core_dig_dlane_n_rw_hs_tx_5_hs_tx_5_thstrail_dco_reg =
+		DIV_ROUND_CLOSEST(DPHY_D2A_HS_TX_DELAY * t_word_clk_ps + t_hs_trail_adj_ps -
+				  t_word_clk_ps - 4 * LP_DCO_CLOCK_PERIOD_PS,
+				  LP_DCO_CLOCK_PERIOD_PS) - 1;
+	regs->core_dig_dlane_n_rw_hs_tx_6_hs_tx_6_tlp11end_dco_reg = HS_TX_6_TLP11END_DCO_REG;
+	regs->core_dig_dlane_n_rw_hs_tx_12_hs_tx_12_thsexit_dco_reg = HS_TX_12_THSEXIT_DCO_REG;
+}
+
+static void cdphy_common_config(struct cdphy *p)
+{
+	/* CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_0 -> CB_LP_DCO_EN_DLY */
+	cdphy_wf(p, F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_0_CB_LP_DCO_EN_DLY, 63);
+
+	/* PPI_STARTUP_RW_COMMON_STARTUP_1_1 -> PHY_READY_DLY */
+	cdphy_wf(p, F_PPI_STARTUP_RW_COMMON_STARTUP_1_1_PHY_READY_DLY, 563);
+
+	/* PPI_STARTUP_RW_COMMON_DPHY_2 -> RCAL_ADDR */
+	cdphy_wf(p, F_PPI_STARTUP_RW_COMMON_DPHY_2_RCAL_ADDR, 3);
+
+	/* PPI_STARTUP_RW_COMMON_DPHY_3 -> PLL_START_ADDR */
+	cdphy_wf(p, F_PPI_STARTUP_RW_COMMON_DPHY_3_PLL_START_ADDR, 38);
+
+	/* PPI_STARTUP_RW_COMMON_DPHY_6 -> LP_DCO_CAL_ADDR */
+	cdphy_wf(p, F_PPI_STARTUP_RW_COMMON_DPHY_6_LP_DCO_CAL_ADDR, 16);
+
+	/* PPI_STARTUP_RW_COMMON_DPHY_A -> HIBERNATE_ADDR */
+	cdphy_wf(p, F_PPI_STARTUP_RW_COMMON_DPHY_A_HIBERNATE_ADDR, 33);
+
+	/* CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2 -> GLOBAL_ULPS_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2_GLOBAL_ULPS_OVR_EN, 0);
+
+	/* PPI_CALIBCTRL_RW_COMMON_BG_0 -> BG_MAX_COUNTER */
+	cdphy_wf(p, F_PPI_CALIBCTRL_RW_COMMON_BG_0_BG_MAX_COUNTER, 500);
+
+	/* PPI_RW_TERMCAL_CFG_0 -> TERMCAL_TIMER */
+	cdphy_wf(p, F_PPI_RW_TERMCAL_CFG_0_TERMCAL_TIMER, 38);
+
+	/* PPI_RW_LPDCOCAL_TIMEBASE -> LPCDCOCAL_TIMEBASE */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_TIMEBASE_LPCDCOCAL_TIMEBASE, 153);
+
+	/* PPI_RW_LPDCOCAL_NREF -> LPCDCOCAL_NREF */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_NREF_LPCDCOCAL_NREF, 800);
+
+	/* PPI_RW_LPDCOCAL_NREF_RANGE -> LPCDCOCAL_NREF_RANGE */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_NREF_RANGE_LPCDCOCAL_NREF_RANGE, 27);
+
+	/* PPI_RW_LPDCOCAL_TWAIT_CONFIG -> LPCDCOCAL_TWAIT_PON */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_TWAIT_CONFIG_LPCDCOCAL_TWAIT_PON, 127);
+
+	/* PPI_RW_LPDCOCAL_TWAIT_CONFIG -> LPCDCOCAL_TWAIT_COARSE */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_TWAIT_CONFIG_LPCDCOCAL_TWAIT_COARSE, 47);
+
+	/* PPI_RW_LPDCOCAL_VT_CONFIG -> LPCDCOCAL_TWAIT_FINE */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_TWAIT_FINE, 47);
+
+	/* PPI_RW_LPDCOCAL_VT_CONFIG -> LPCDCOCAL_VT_NREF_RANGE */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_VT_NREF_RANGE, 27);
+
+	/* PPI_RW_LPDCOCAL_VT_CONFIG -> LPCDCOCAL_USE_IDEAL_NREF */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_USE_IDEAL_NREF, 1);
+
+	/* PPI_RW_LPDCOCAL_VT_CONFIG -> LPCDCOCAL_VT_TRACKING_EN */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_VT_CONFIG_LPCDCOCAL_VT_TRACKING_EN, 0);
+
+	/* PPI_RW_LPDCOCAL_COARSE_CFG -> NCOARSE_START */
+	cdphy_wf(p, F_PPI_RW_LPDCOCAL_COARSE_CFG_NCOARSE_START, 1);
+
+	/* PPI_RW_PLL_STARTUP_CFG_0 -> PLL_RST_TIME */
+	cdphy_wf(p, F_PPI_RW_PLL_STARTUP_CFG_0_PLL_RST_TIME, 383);
+
+	/* PPI_RW_PLL_STARTUP_CFG_1 -> PLL_GEAR_SHIFT_TIME */
+	cdphy_wf(p, F_PPI_RW_PLL_STARTUP_CFG_1_PLL_GEAR_SHIFT_TIME, 191);
+
+	/* PPI_RW_PLL_STARTUP_CFG_2 -> PLL_LOCK_DET_TIME */
+	cdphy_wf(p, F_PPI_RW_PLL_STARTUP_CFG_2_PLL_LOCK_DET_TIME, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE?_CTRL_2_3 -> OA_LANE?_HSTX_SEL_CLKLB */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3_OA_LANE0_HSTX_SEL_CLKLB, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3_OA_LANE1_HSTX_SEL_CLKLB, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3_OA_LANE2_HSTX_SEL_CLKLB, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3_OA_LANE3_HSTX_SEL_CLKLB, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3_OA_LANE4_HSTX_SEL_CLKLB, 0);
+
+	/* PPI_RW_COMMON_CFG -> CFG_CLK_DIV_FACTOR: 8 */
+	cdphy_wf(p, F_PPI_RW_COMMON_CFG_CFG_CLK_DIV_FACTOR, 3);
+}
+
+static void cdphy_dphy_config(struct cdphy *p)
+{
+	u32 val = 6; /* Default value for LP_0_TTAGO_REG */
+	struct dphy_hs_regs *hs_regs = &p->dphy_regs;
+
+	/* CORE_DIG_DLANE_?_RW_LP_0 -> LP_0_TTAGO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_LP_0_LP_0_TTAGO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_LP_0_LP_0_TTAGO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_LP_0_LP_0_TTAGO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_LP_0_LP_0_TTAGO_REG, val);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE?_CTRL_2_2 -> OA_LANE?_SEL_LANE_CFG */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_2_OA_LANE0_SEL_LANE_CFG, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_2_OA_LANE1_SEL_LANE_CFG, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_2_OA_LANE2_SEL_LANE_CFG, 1);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_2_OA_LANE3_SEL_LANE_CFG, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_2_OA_LANE4_SEL_LANE_CFG, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE?_CTRL_2_3 -> OA_LANE?_HSTX_SEL_PHASE0 */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE0_CTRL_2_3_OA_LANE0_HSTX_SEL_PHASE0, 1);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE1_CTRL_2_3_OA_LANE1_HSTX_SEL_PHASE0, 1);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_3_OA_LANE2_HSTX_SEL_PHASE0, 0);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE3_CTRL_2_3_OA_LANE3_HSTX_SEL_PHASE0, 1);
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE4_CTRL_2_3_OA_LANE4_HSTX_SEL_PHASE0, 1);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_0 -> HS_TX_0_THSTRAIL_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_0_hs_tx_0_thstrail_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_0 -> HS_TX_0_THSTRAIL_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_0_HS_TX_0_THSTRAIL_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_0_hs_tx_0_thstrail_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_1 -> HS_TX_1_THSZERO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_1_hs_tx_1_thszero_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_1_HS_TX_1_THSZERO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_1_HS_TX_1_THSZERO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_1_HS_TX_1_THSZERO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_1_HS_TX_1_THSZERO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_1 -> HS_TX_1_THSZERO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_1_HS_TX_1_THSZERO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_1_hs_tx_1_thszero_reg);
+
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_2 -> HS_TX_2_TCLKPRE_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_2_HS_TX_2_TCLKPRE_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_2_hs_tx_2_tclkpre_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_3 -> HS_TX_3_TLPTXOVERLAP_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_3_hs_tx_3_tlptxoverlap_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_3 -> HS_TX_3_TLPTXOVERLAP_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_3_HS_TX_3_TLPTXOVERLAP_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_3_hs_tx_3_tlptxoverlap_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_4 -> HS_TX_4_TLPX_DCO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_4_hs_tx_4_tlpx_dco_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_4 -> HS_TX_4_TLPX_DCO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_4_HS_TX_4_TLPX_DCO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_4_hs_tx_4_tlpx_dco_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_5 -> HS_TX_5_THSTRAIL_DCO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_5_hs_tx_5_thstrail_dco_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_5 -> HS_TX_5_THSTRAIL_DCO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_5_HS_TX_5_THSTRAIL_DCO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_5_hs_tx_5_thstrail_dco_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_6 -> HS_TX_6_TLP11END_DCO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_6_hs_tx_6_tlp11end_dco_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_6 -> HS_TX_6_TLP11END_DCO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_6_HS_TX_6_TLP11END_DCO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_6_hs_tx_6_tlp11end_dco_reg);
+
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_8 -> HS_TX_8_TCLKPOST_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_8_HS_TX_8_TCLKPOST_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_8_hs_tx_8_tclkpost_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_9 -> HS_TX_9_THSPRPR_DCO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_9_hs_tx_9_thsprpr_dco_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_9 -> HS_TX_9_THSPRPR_DCO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_9_HS_TX_9_THSPRPR_DCO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_9_hs_tx_9_thsprpr_dco_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_10 -> HS_TX_10_TLP11INIT_DCO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_10_hs_tx_10_tlp11init_dco_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_10 -> HS_TX_10_TLP11INIT_DCO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_10_HS_TX_10_TLP11INIT_DCO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_10_hs_tx_10_tlp11init_dco_reg);
+
+	/* CORE_DIG_DLANE_?_RW_HS_TX_12 -> HS_TX_12_THSEXIT_DCO_REG */
+	val = hs_regs->core_dig_dlane_n_rw_hs_tx_12_hs_tx_12_thsexit_dco_reg;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG, val);
+	/* CORE_DIG_DLANE_CLK_RW_HS_TX_12 -> HS_TX_12_THSEXIT_DCO_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_HS_TX_12_HS_TX_12_THSEXIT_DCO_REG,
+		 hs_regs->core_dig_dlane_clk_rw_hs_tx_12_hs_tx_12_thsexit_dco_reg);
+
+	/* CORE_DIG_DLANE_?_RW_LP_2 -> LP_2_FILTER_INPUT_SAMPLING_REG */
+	val = 0;
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_LP_2_LP_2_FILTER_INPUT_SAMPLING_REG, val);
+}
+
+static void cdphy_extra_config(struct cdphy *p)
+{
+	u32 val = 1; /* Default value for LP_0_ITMINRX_REG */
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7 -> OA_LANE2_LPRX_LP_PON_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7_OA_LANE2_LPRX_LP_PON_OVR_EN, 1);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8 -> OA_LANE2_LPRX_LP_PON_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8_OA_LANE2_LPRX_LP_PON_OVR_VAL, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7 -> OA_LANE2_LPRX_CD_PON_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_7_OA_LANE2_LPRX_CD_PON_OVR_EN, 1);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8 -> OA_LANE2_LPRX_CD_PON_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_LANE2_CTRL_2_8_OA_LANE2_LPRX_CD_PON_OVR_VAL, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_5 -> OA_CB_SEL_45OHM_50OHM */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_5_OA_CB_SEL_45OHM_50OHM, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3 -> OA_CB_HSTXLB_DCO_CLK0_EN_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3_OA_CB_HSTXLB_DCO_CLK0_EN_OVR_EN, 1);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_1 -> OA_CB_HSTXLB_DCO_CLK0_EN_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_1_OA_CB_HSTXLB_DCO_CLK0_EN_OVR_VAL, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3 -> OA_CB_HSTXLB_DCO_CLK90_EN_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_3_OA_CB_HSTXLB_DCO_CLK90_EN_OVR_EN, 1);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_0 -> OA_CB_HSTXLB_DCO_CLK90_EN_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_0_OA_CB_HSTXLB_DCO_CLK90_EN_OVR_VAL, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6 -> OA_CB_HSTXLB_DCO_EN_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6_OA_CB_HSTXLB_DCO_EN_OVR_EN, 1);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7 -> OA_CB_HSTXLB_DCO_EN_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7_OA_CB_HSTXLB_DCO_EN_OVR_VAL, 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6 -> OA_CB_HSTXLB_DCO_TUNE_CLKDIG_EN_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_6_OA_CB_HSTXLB_DCO_TUNE_CLKDIG_EN_OVR_EN, 1);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7 -> OA_CB_HSTXLB_DCO_TUNE_CLKDIG_EN_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_7_OA_CB_HSTXLB_DCO_TUNE_CLKDIG_EN_OVR_VAL,
+		 0);
+
+	/* CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_4 -> OA_CB_CAL_SINK_EN_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_IOCTRL_RW_AFE_CB_CTRL_2_4_OA_CB_CAL_SINK_EN_OVR_VAL, 0);
+
+	/* CORE_DIG_DLANE_?_RW_LP_0 -> LP_0_ITMINRX_REG */
+	cdphy_wf(p, F_CORE_DIG_DLANE_0_RW_LP_0_LP_0_ITMINRX_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_1_RW_LP_0_LP_0_ITMINRX_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_2_RW_LP_0_LP_0_ITMINRX_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_3_RW_LP_0_LP_0_ITMINRX_REG, val);
+	cdphy_wf(p, F_CORE_DIG_DLANE_CLK_RW_LP_0_LP_0_ITMINRX_REG, val);
+
+	/* CORE_DIG_CLANE_?_RW_LP_0 -> LP_0_ITMINRX_REG */
+	cdphy_wf(p, F_CORE_DIG_CLANE_0_RW_LP_0_LP_0_ITMINRX_REG, val);
+	cdphy_wf(p, F_CORE_DIG_CLANE_1_RW_LP_0_LP_0_ITMINRX_REG, val);
+	cdphy_wf(p, F_CORE_DIG_CLANE_2_RW_LP_0_LP_0_ITMINRX_REG, val);
+
+	/* PPI_STARTUP_RW_COMMON_DPHY_10 -> PHY_READY_ADDR, enables hibernate */
+	cdphy_wf(p, F_PPI_STARTUP_RW_COMMON_DPHY_10_PHY_READY_ADDR, 47);
+
+	/* CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2 -> GLOBAL_ULPS_OVR_EN */
+	cdphy_wf(p, F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2_GLOBAL_ULPS_OVR_EN, 0);
+
+	/* CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2 -> GLOBAL_ULPS_OVR_VAL */
+	cdphy_wf(p, F_CORE_DIG_ANACTRL_RW_COMMON_ANACTRL_2_GLOBAL_ULPS_OVR_VAL, 0);
+}
+
+static void cdphy_pll_config(struct cdphy *p)
+{
+	u32 val = 0;
+	struct pll_config *pll_config = &p->pll_config;
+
+	/* TC_DIG_TC_REGISTERS_RW_PLL_ANA_CTRL_0  -> ATB_SENSE_SEL_R */
+	cdphy_wf(p, F_PLL_CFG0_RW_PLL_ATB_SENSE_SEL, 0);
+
+	/* TC_DIG_TC_REGISTERS_RW_PLL_ANA_CTRL_0  -> CLKSEL_R */
+	/* set pll_clksel to 1 after PLL locked */
+	cdphy_wf(p, F_PLL_CFG0_RW_PLL_CLKSEL, 0);
+
+	/* PLL_CFG0 -> PLL_CLKOUTEN_LEFT */
+	cdphy_wf(p, F_PLL_CFG0_RW_PLL_CLKOUTEN_LEFT, 1);
+
+	/* PLL_CFG0 -> PLL_OPMODE */
+	cdphy_wf(p, F_PLL_CFG0_RW_PLL_OPMODE, 16);
+
+	/* PLL_CFG1 -> PLL_PRG_31_0 */
+	cdphy_wf(p, F_PLL_CFG1_RW_PLL_PRG_31_0, 3);
+
+	/* PLL_CFG2 -> PLL_PRG_32 */
+	cdphy_wf(p, F_PLL_CFG2_RW_PLL_PRG_32, 0);
+
+	/* PLL_CFG2 -> TH1 */
+	cdphy_wf(p, F_PLL_CFG2_RW_PLL_TH1, 1);
+
+	/* PLL_CFG2 -> TH2 */
+	cdphy_wf(p, F_PLL_CFG2_RW_PLL_TH2, 255);
+
+	/* PLL_CFG2 -> TH3 */
+	cdphy_wf(p, F_PLL_CFG2_RW_PLL_TH3, 3);
+
+	/* PLL_CFG3 -> FRACN_EN */
+	val = pll_config->pll_ssc_frac_en;
+	cdphy_wf(p, F_PLL_CFG3_RW_PLL_FRACN_EN, val);
+
+	/* PLL_CFG3 -> PHY_M */
+	val = pll_config->pll_m;
+	cdphy_wf(p, F_PLL_CFG3_RW_PLL_M, val);
+
+	val = pll_config->pll_mint;
+	cdphy_wf(p, F_PLL_CFG3_RW_PLL_MINT, val);
+
+	/* PLL_CFG3 -> PHY_N */
+	val = pll_config->pll_n;
+	cdphy_wf(p, F_PLL_CFG3_RW_PLL_N, val);
+
+	/* PLL_CP -> VCO_CNTRL */
+	val = pll_config->charge_pump_cfg->pll_vco_cntrl_2_0;
+	cdphy_wf(p, F_PLL_CP_RW_PLL_VCO_CNTRL_0_2, val);
+	val = pll_config->pll_vco_cntrl_5_3;
+	cdphy_wf(p, F_PLL_CP_RW_PLL_VCO_CNTRL_3_5, val);
+
+	/* PLL_CP -> CPBIAS_CNTRL */
+	val = pll_config->charge_pump_cfg->cpbias_cntrl;
+	cdphy_wf(p, F_PLL_CP_RW_PLL_CPBIAS_CNTRL, val);
+
+	/* PLL_CP -> INT_CNTRL */
+	val = pll_config->charge_pump_cfg->int_cntrl;
+	cdphy_wf(p, F_PLL_CP_RW_PLL_INT_CNTRL, val);
+
+	/* PLL_CP -> GMP_CNTRL */
+	val = pll_config->charge_pump_cfg->gmp_cntrl;
+	cdphy_wf(p, F_PLL_CP_RW_PLL_GMP_CNTRL, val);
+
+	/* PLL_CP -> PROP_CNTRL */
+	val = pll_config->charge_pump_cfg->prop_cntrl;
+	cdphy_wf(p, F_PLL_CP_RW_PLL_PROP_CNTRL, val);
+
+	/* PLL_CFG7 -> PLL_FRAC_QUOT */
+	val = pll_config->pll_frac_quote;
+	cdphy_wf(p, F_PLL_CFG7_RW_PLL_FRAC_QUOT, val);
+
+	/* PLL_CFG7 -> PLL_FRAC_REM */
+	val = pll_config->pll_frac_rem;
+	cdphy_wf(p, F_PLL_CFG7_RW_PLL_FRAC_REM, val);
+
+	/* PLL_CFG4 -> PLL_FRAC_DEN */
+	val = pll_config->pll_frac_den;
+	cdphy_wf(p, F_PLL_CFG4_RW_PLL_FRAC_DEN, val);
+
+	/* PLL_CFG3 -> PLL_FRACN_EN */
+	val = pll_config->pll_ssc_frac_en;
+	cdphy_wf(p, F_PLL_CFG3_RW_PLL_FRACN_EN, val);
+
+	/* PLL_CFG6 -> PLL_SSC_EN */
+	val = pll_config->pll_ssc_en;
+	cdphy_wf(p, F_PLL_CFG6_RW_PLL_SSC_EN, val);
+
+	/* PLL_CFG3 -> PLL_FRACN_CFG_UPDATE_EN */
+	cdphy_wf(p, F_PLL_CFG3_RW_PLL_FRACN_CFG_UPDATE_EN, 1);
+
+	/* PLL_CFG6 -> PLL_SSC_PEAK */
+	val = pll_config->pll_ssc_peak;
+	cdphy_wf(p, F_PLL_CFG6_RW_PLL_SSC_PEAK, val);
+
+	/* PLL_CFG6 -> PLL_SPREAD_TYPE */
+	cdphy_wf(p, F_PLL_CFG6_RW_PLL_SPREAD_TYPE, 0);
+
+	/* PLL_CFG5 --> PLL_STEP_SIZE */
+	val = pll_config->pll_ssc_stepsize;
+	cdphy_wf(p, F_PLL_CFG5_RW_PLL_STEPSIZE, val);
+}
+
+static int cdphy_configure(struct phy *phy, union phy_configure_opts *opts)
+{
+	struct phy_configure_opts_mipi_dphy *cfg = &opts->mipi_dphy;
+	struct cdphy *p = phy_get_drvdata(phy);
+	u32 datarate_mbps, val;
+	int ret;
+
+	if (!cfg->lanes || cfg->lanes > 4)
+		return -EINVAL;
+
+	datarate_mbps = div_u64(cfg->hs_clk_rate, HZ_PER_MHZ);
+	if (datarate_mbps < MIN_DATA_RATE_MBPS || datarate_mbps > MAX_DATA_RATE_MBPS)
+		return -EINVAL;
+
+	ret = cdphy_pll_calc(datarate_mbps, clk_get_rate(p->pllref) / HZ_PER_KHZ,
+			     &p->pll_config);
+	if (ret) {
+		dev_err(p->dev, "no PLL setting for %u Mbps\n", datarate_mbps);
+		return ret;
+	}
+	cdphy_dphy_timing_calc(datarate_mbps, &p->dphy_regs);
+
+	/* Hold the PHY in shutdown and reset while it is programmed. */
+	cdphy_wf(p, F_PHY_CTRL0_RW_SHUTDOWN_N, 0);
+	cdphy_wf(p, F_PHY_CTRL0_RW_PHY_RST_N, 0);
+	cdphy_wf(p, F_PPI_RW_HSTX_FIFO_CFG_TXDATATRANSFERENHS_SEL, 0);
+
+	/* Keep the used lanes in stop state until the controller takes over. */
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_0, 1);
+	if (cfg->lanes > 1)
+		cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_1, 1);
+	if (cfg->lanes > 2)
+		cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_2, 1);
+	if (cfg->lanes > 3)
+		cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_3, 1);
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_DCK, 1);
+
+	cdphy_common_config(p);
+	cdphy_dphy_config(p);
+	cdphy_extra_config(p);
+	cdphy_pll_config(p);
+
+	/* 16-bit PPI data width */
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_0, 1);
+	if (cfg->lanes > 1)
+		cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_1, 1);
+	if (cfg->lanes > 2)
+		cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_2, 1);
+	if (cfg->lanes > 3)
+		cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_TXDATAWIDTHHS_3, 1);
+
+	/* D-PHY mode, then release shutdown and reset. */
+	cdphy_wf(p, F_PHY_CTRL0_RW_PHY_MODE, 0);
+	cdphy_wf(p, F_PHY_CTRL0_RW_SHUTDOWN_N, 1);
+	cdphy_wf(p, F_PHY_CTRL0_RW_PHY_RST_N, 1);
+
+	ret = readl_poll_timeout(p->apb + PHY_STS, val, val & PHY_STS_READY,
+				 50, PHY_STATUS_TIMEOUT_US);
+	if (ret) {
+		dev_err(p->dev, "PHY not ready\n");
+		return ret;
+	}
+
+	ret = readl_poll_timeout(p->apb + PHY_STS, val, val & PHY_STS_PLL_LOCK,
+				 50, PHY_STATUS_TIMEOUT_US);
+	if (ret) {
+		dev_err(p->dev, "PLL did not lock\n");
+		return ret;
+	}
+
+	/* Switch to the PLL clock once it is locked. */
+	cdphy_wf(p, F_PLL_CFG0_RW_PLL_CLKSEL, 1);
+
+	return 0;
+}
+
+static int cdphy_power_on(struct phy *phy)
+{
+	struct cdphy *p = phy_get_drvdata(phy);
+
+	/* Hand the lanes over to the controller. */
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_0, 0);
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_1, 0);
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_2, 0);
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_3, 0);
+	cdphy_wf(p, F_PHY_EXTENDED_CTR1_RW_FORCETXSTOPMODE_DCK, 0);
+
+	return 0;
+}
+
+static int cdphy_power_off(struct phy *phy)
+{
+	struct cdphy *p = phy_get_drvdata(phy);
+
+	cdphy_wf(p, F_PHY_CTRL0_RW_SHUTDOWN_N, 0);
+	cdphy_wf(p, F_PHY_CTRL0_RW_PHY_RST_N, 0);
+
+	return 0;
+}
+
+static int cdphy_init(struct phy *phy)
+{
+	struct cdphy *p = phy_get_drvdata(phy);
+
+	return pm_runtime_resume_and_get(p->dev);
+}
+
+static int cdphy_exit(struct phy *phy)
+{
+	struct cdphy *p = phy_get_drvdata(phy);
+
+	pm_runtime_put(p->dev);
+
+	return 0;
+}
+
+static const struct phy_ops cdphy_ops = {
+	.init		= cdphy_init,
+	.exit		= cdphy_exit,
+	.configure	= cdphy_configure,
+	.power_on	= cdphy_power_on,
+	.power_off	= cdphy_power_off,
+	.owner		= THIS_MODULE,
+};
+
+static int cdphy_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct phy_provider *provider;
+	struct cdphy *p;
+	int ret;
+
+	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+
+	p->dev = dev;
+
+	p->core = devm_platform_ioremap_resource_byname(pdev, "core");
+	if (IS_ERR(p->core))
+		return PTR_ERR(p->core);
+
+	p->apb = devm_platform_ioremap_resource_byname(pdev, "apb");
+	if (IS_ERR(p->apb))
+		return PTR_ERR(p->apb);
+
+	p->pllref = devm_clk_get_enabled(dev, "pllref");
+	if (IS_ERR(p->pllref))
+		return dev_err_probe(dev, PTR_ERR(p->pllref), "no PLL reference clock\n");
+
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
+
+	p->phy = devm_phy_create(dev, NULL, &cdphy_ops);
+	if (IS_ERR(p->phy))
+		return PTR_ERR(p->phy);
+
+	phy_set_drvdata(p->phy, p);
+
+	provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
+
+	return PTR_ERR_OR_ZERO(provider);
+}
+
+static const struct of_device_id cdphy_of_match[] = {
+	{ .compatible = "google,mbu-mipi-dphy" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, cdphy_of_match);
+
+static struct platform_driver cdphy_driver = {
+	.probe = cdphy_probe,
+	.driver = {
+		.name = "snps-mipi-cdphy-tx",
+		.of_match_table = cdphy_of_match,
+	},
+};
+module_platform_driver(cdphy_driver);
+
+MODULE_DESCRIPTION("Synopsys DesignWare MIPI C/D-PHY TX driver");
+MODULE_LICENSE("GPL");

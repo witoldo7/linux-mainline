@@ -161,6 +161,17 @@ config PHY_SNPS_EUSB2
 	  Enable support for the USB high-speed SNPS eUSB2 phy on select
 	  SoCs. The PHY is usually paired with a Synopsys DWC3 USB controller.
 
+config PHY_SNPS_MIPI_CDPHY_TX
+	tristate "Synopsys DesignWare MIPI C/D-PHY TX driver"
+	depends on OF && HAS_IOMEM && (ARCH_GOOGLE || COMPILE_TEST)
+	select GENERIC_PHY
+	select GENERIC_PHY_MIPI_DPHY
+	default ARCH_GOOGLE
+	help
+	  Enable support for the Synopsys DesignWare MIPI C/D-PHY TX (G301)
+	  used by the DSI outputs of Google Tensor G6 (malibu) SoCs. Only
+	  D-PHY mode is supported.
+
 config PHY_XGENE
 	tristate "APM X-Gene 15Gbps PHY support"
 	depends on HAS_IOMEM && OF && (ARCH_XGENE || COMPILE_TEST)
