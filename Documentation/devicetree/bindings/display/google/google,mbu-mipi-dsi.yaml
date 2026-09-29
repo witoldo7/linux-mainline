@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/google/google,mbu-mipi-dsi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Google Tensor G6 MIPI DSI controller
+
+maintainers:
+  - Witold Olechowski <witusio@gmail.com>
+
+description:
+  The Google Tensor G6 (malibu) SoC has two Synopsys DesignWare MIPI DSI-2
+  host controllers, each paired with a Synopsys C/D-PHY used in D-PHY mode.
+
+properties:
+  compatible:
+    const: google,mbu-mipi-dsi
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    maxItems: 2
+
+  clock-names:
+    items:
+      - const: pclk
+      - const: sys
+
+  phys:
+    maxItems: 1
+
+  phy-names:
+    const: dphy
+
+  power-domains:
+    maxItems: 1
+
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
+
+    properties:
+      port@0:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: Input from the display controller.
+
+      port@1:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: Output to the panel or bridge.
+
+    required:
+      - port@0
+      - port@1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - phys
+  - phy-names
+  - ports
+
+allOf:
+  - $ref: /schemas/display/dsi-controller.yaml#
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    dsi@f7d8000 {
+        compatible = "google,mbu-mipi-dsi";
+        reg = <0x0f7d8000 0x800>;
+        clocks = <&dsi_pclk>, <&dsi_sys_clk>;
+        clock-names = "pclk", "sys";
+        phys = <&dsi0_phy>;
+        phy-names = "dphy";
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                dsi0_in: endpoint {
+                    remote-endpoint = <&dpu_out_dsi0>;
+                };
+            };
+
+            port@1 {
+                reg = <1>;
+                dsi0_out: endpoint {
+                    remote-endpoint = <&panel_in>;
+                };
+            };
+        };
+    };
