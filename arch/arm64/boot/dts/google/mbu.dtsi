@@ -311,6 +311,157 @@
 		};
 	};
 
+	reserved_memory: reserved-memory {
+		ranges;
+		#address-cells = <2>;
+		#size-cells = <2>;
+
+		cpu_stats_carveout: cpu-stats-carveout@8b20f000 {
+			reg = <0x0 0x8b20f000 0x0 0x1000>;
+			no-map;
+		};
+
+		gdmc_tracepoint_dma_buff: gdmc-tracepoint-dma-buff@8b400000 {
+			reg = <0x0 0x8b400000 0x0 0x10000>;
+			no-map;
+		};
+
+		goog_mba_gdmc_iface_dma_region: goog-mba-gdmc-iface-dma-region@8b420000 {
+			reg = <0x0 0x8b420000 0x0 0x4000>;
+			no-map;
+		};
+
+		gdmc_metrics_dma_buffer: gdmc-metrics-dma-buffer@8b42c000 {
+			reg = <0x0 0x8b42c000 0x0 0x4000>;
+			no-map;
+		};
+
+		gvdu_dma_region: gvdu-dma-region@8b430000 {
+			reg = <0x0 0x8b430000 0x0 0x4000>;
+			no-map;
+		};
+
+		cpm_tracepoint_ipc_dma_buff: cpm-tracepoint-ipc-dma-buff@8cdf4000 {
+			reg = <0x0 0x8cdf4000 0x0 0x4000>;
+			no-map;
+		};
+
+		cpm_tracepoint_buff: cpm-tracepoint-buff@8ce00000 {
+			reg = <0x0 0x8ce00000 0x0 0x200000>;
+			no-map;
+		};
+
+		cap_tracepoint_buff: cap-tracepoint-buff@8d000000 {
+			reg = <0x0 0x8d000000 0x0 0x200000>;
+			no-map;
+		};
+
+		vfa_tracepoint_buff: vfa-tracepoint-buff@8d200000 {
+			reg = <0x0 0x8d200000 0x0 0x20000>;
+			no-map;
+		};
+
+		log_kevents: log-kevents@90200000 {
+			reg = <0x0 0x90200000 0x0 0x300000>;
+			no-map;
+		};
+
+		cdd_log_reserved: cdd-log-reserved@90700000 {
+			reg = <0x0 0x90700000 0x0 0x10000>;
+			no-map;
+		};
+
+		debug_kinfo_reserved: debug-kinfo-reserved@90714000 {
+			reg = <0x0 0x90714000 0x0 0x4000>;
+			no-map;
+		};
+
+		cdd_header: cdd-header@951f8000 {
+			reg = <0x0 0x951f8000 0x0 0x8000>;
+			no-map;
+		};
+
+		bldr_log_reserved: bldr-log-reserved@95600000 {
+			reg = <0x0 0x95600000 0x0 0x100000>;
+			no-map;
+		};
+
+		xhci_dma_dram: xhci-dma-dram@97000000 {
+			reg = <0x0 0x97000000 0x0 0x3f4000>;
+			no-map;
+		};
+
+		xhci_dma_buffer: xhci-dma-buffer@973f4000 {
+			reg = <0x0 0x973f4000 0x0 0xc000>;
+			no-map;
+		};
+
+		tpu_fw_reserved: tpu-fw-reserved@a0000000 {
+			reg = <0x0 0xa0000000 0x0 0xa00000>;
+			no-map;
+		};
+
+		guest0_tpu_fw_reserved: guest0-tpu-fw-reserved@a0a00000 {
+			reg = <0x0 0xa0a00000 0x0 0x200000>;
+			no-map;
+		};
+
+		guest1_tpu_fw_reserved: guest1-tpu-fw-reserved@a0c00000 {
+			reg = <0x0 0xa0c00000 0x0 0x200000>;
+			no-map;
+		};
+
+		guest2_tpu_fw_reserved: guest2-tpu-fw-reserved@a0e00000 {
+			reg = <0x0 0xa0e00000 0x0 0x200000>;
+			no-map;
+		};
+
+		iif_wait_table_reserved: iif-wait-table-reserved@a1360000 {
+			reg = <0x0 0xa1360000 0x0 0x20000>;
+			no-map;
+		};
+
+		iif_signal_table_reserved: iif-signal-table-reserved@a1380000 {
+			reg = <0x0 0xa1380000 0x0 0x20000>;
+			no-map;
+		};
+
+		gxp_secure_data_reserved: gxp-secure-data-reserved@a1400000 {
+			reg = <0x0 0xa1400000 0x0 0x900000>;
+			no-map;
+		};
+
+		gxp_fw_reserved: gxp-fw-reserved@a1d00000 {
+			reg = <0x0 0xa1d00000 0x0 0x300000>;
+			no-map;
+		};
+
+		gxp_mcu_fw_reserved: gxp-mcu-fw-reserved@a2000000 {
+			reg = <0x0 0xa2000000 0x0 0x400000>;
+			no-map;
+		};
+
+		gsa_reserved_log: gsa-reserved-log@a61b0000 {
+			reg = <0x0 0xa61b0000 0x0 0x4000>;
+			no-map;
+		};
+
+		gpu_fw_reserved: gpu-fw-reserved@b9f00000 {
+			reg = <0x0 0xb9f00000 0x0 0x2100000>;
+			no-map;
+		};
+
+		abl_reserve: abl-reserve@be000000 {
+			reg = <0x0 0xbe000000 0x0 0x1000000>;
+			no-map;
+		};
+
+		aoc_reserve: aoc-reserve@eb000000 {
+			reg = <0x0 0xeb000000 0x0 0x4000000>;
+			no-map;
+		};
+	};
+
 	soc: soc@0 {
 		compatible = "simple-bus";
 		ranges = <0x0 0x0 0x0 0x0 0x10 0x0>;
