@@ -109,6 +109,7 @@ properties:
     items:
       - enum:
           - google,lga-mailbox-array
+          - google,mbu-mailbox-array
       - const: google,mailbox-array
 
   reg:
