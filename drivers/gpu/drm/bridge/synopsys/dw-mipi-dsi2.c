@@ -20,6 +20,7 @@
 #include <video/mipi_display.h>
 
 #include <drm/bridge/dw_mipi_dsi2.h>
+#include <drm/display/drm_dsc.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_mipi_dsi.h>
@@ -203,6 +204,7 @@ struct dw_mipi_dsi2 {
 	u32 lanes;
 	u32 format;
 	unsigned long mode_flags;
+	const struct drm_dsc_config *dsc;
 
 	struct drm_display_mode mode;
 	const struct dw_mipi_dsi2_plat_data *plat_data;
@@ -414,6 +416,23 @@ static void dw_mipi_dsi2_ipi_color_coding_cfg(struct dw_mipi_dsi2 *dsi2)
 {
 	u32 val, color_depth;
 
+	/* A compressed stream is described by the DSC bits per component. */
+	if (dsi2->dsc) {
+		switch (dsi2->dsc->bits_per_component) {
+		case 10:
+			color_depth = IPI_DEPTH_10_BITS;
+			break;
+		case 8:
+		default:
+			color_depth = IPI_DEPTH_8_BITS;
+			break;
+		}
+
+		regmap_write(dsi2->regmap, DSI2_IPI_COLOR_MAN_CFG,
+			     IPI_DEPTH(color_depth) | IPI_FORMAT(IPI_FORMAT_DSC));
+		return;
+	}
+
 	switch (dsi2->format) {
 	case MIPI_DSI_FMT_RGB666:
 	case MIPI_DSI_FMT_RGB666_PACKED:
@@ -527,6 +546,7 @@ static int dw_mipi_dsi2_host_attach(struct mipi_dsi_host *host,
 	dsi2->channel = device->channel;
 	dsi2->format = device->format;
 	dsi2->mode_flags = device->mode_flags;
+	dsi2->dsc = device->dsc;
 
 	bridge = devm_drm_of_get_bridge(dsi2->dev, dsi2->dev->of_node, 1, 0);
 	if (IS_ERR(bridge))
