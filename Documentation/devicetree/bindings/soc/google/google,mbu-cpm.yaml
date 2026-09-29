@@ -11,14 +11,15 @@ maintainers:
 
 description:
   The Central Power Manager (CPM) is a microcontroller in the Google Tensor
-  G6 (malibu) SoC that owns most of its clocks and power domains. The AP
-  talks to it through two queued mailboxes of a Google MailBox Array, one
-  for requests and one for responses and notifications.
+  G6 (malibu) SoC that owns most of its clocks, power domains and resets.
+  The AP talks to it through two queued mailboxes of a Google MailBox Array,
+  one for requests and one for responses and notifications.
 
   Clocks are identified by the id of their subsystem clock manager (LPCM)
   and their id within that LPCM, see
-  include/dt-bindings/clock/google,mbu-cpm.h. Power domains are listed in
-  include/dt-bindings/power/google,mbu-power.h.
+  include/dt-bindings/clock/google,mbu-cpm.h. Resets are identified the same
+  way, see include/dt-bindings/reset/google,mbu-cpm.h. Power domains are
+  listed in include/dt-bindings/power/google,mbu-power.h.
 
 properties:
   compatible:
@@ -40,12 +41,16 @@ properties:
   '#power-domain-cells':
     const: 1
 
+  '#reset-cells':
+    const: 2
+
 required:
   - compatible
   - mboxes
   - mbox-names
   - '#clock-cells'
   - '#power-domain-cells'
+  - '#reset-cells'
 
 additionalProperties: false
 
@@ -57,4 +62,5 @@ examples:
         mbox-names = "tx", "rx";
         #clock-cells = <2>;
         #power-domain-cells = <1>;
+        #reset-cells = <2>;
     };
