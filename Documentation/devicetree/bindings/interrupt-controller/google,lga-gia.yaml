@@ -24,6 +24,8 @@ properties:
     enum:
       - google,lga-level-gia
       - google,lga-pulse-gia
+      - google,mbu-level-gia
+      - google,mbu-pulse-gia
 
   reg:
     maxItems: 1
