@@ -7,9 +7,27 @@
 
 /dts-v1/;
 
+#include <dt-bindings/gpio/gpio.h>
+
 #include "mbu-pixel-common.dtsi"
 
 / {
 	model = "Cubs";
 	compatible = "google,mbu-cubs", "google,mbu";
+};
+
+&lsioe_i2c4 {
+	clock-frequency = <400000>;
+
+	status = "okay";
+
+	/* Display panel core supply */
+	vddd_disp: regulator@40 {
+		compatible = "ti,tps628600";
+		reg = <0x40>;
+		enable-gpios = <&pmic_gpio 13 GPIO_ACTIVE_HIGH>;
+		regulator-name = "vddd_disp";
+		regulator-min-microvolt = <1000000>;
+		regulator-max-microvolt = <1000000>;
+	};
 };
