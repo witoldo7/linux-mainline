@@ -1,0 +1,339 @@
+// SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+/*
+ * Google Tensor G6 (malibu) SoC rev B0
+ *
+ * Copyright 2025 Google LLC.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	interrupt-parent = <&gic>;
+
+	osc: clock-38400000 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+	};
+
+	cpus: cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		gelas_ll_0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,c1-pro";
+			reg = <0x000>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <779>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd0>;
+			power-domain-names = "psci";
+		};
+
+		gelas_ll_1: cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,c1-pro";
+			reg = <0x100>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <779>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd1>;
+			power-domain-names = "psci";
+		};
+
+		gelas_0: cpu@200 {
+			device_type = "cpu";
+			compatible = "arm,c1-pro";
+			reg = <0x200>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <780>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd2>;
+			power-domain-names = "psci";
+		};
+
+		gelas_1: cpu@300 {
+			device_type = "cpu";
+			compatible = "arm,c1-pro";
+			reg = <0x300>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <780>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd3>;
+			power-domain-names = "psci";
+		};
+
+		gelas_2: cpu@400 {
+			device_type = "cpu";
+			compatible = "arm,c1-pro";
+			reg = <0x400>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <780>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd4>;
+			power-domain-names = "psci";
+		};
+
+		gelas_3: cpu@500 {
+			device_type = "cpu";
+			compatible = "arm,c1-pro";
+			reg = <0x500>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <780>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd5>;
+			power-domain-names = "psci";
+		};
+
+		travis_0: cpu@600 {
+			device_type = "cpu";
+			compatible = "arm,c1-ultra";
+			reg = <0x600>;
+
+			#cooling-cells = <2>;
+			capacity-dmips-mhz = <1024>;
+			enable-method = "psci";
+			power-domains = <&cpu_pd6>;
+			power-domain-names = "psci";
+		};
+
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&gelas_ll_0>;
+				};
+
+				core1 {
+					cpu = <&gelas_ll_1>;
+				};
+			};
+
+			cluster1 {
+				core0 {
+					cpu = <&gelas_0>;
+				};
+
+				core1 {
+					cpu = <&gelas_1>;
+				};
+
+				core2 {
+					cpu = <&gelas_2>;
+				};
+
+				core3 {
+					cpu = <&gelas_3>;
+				};
+			};
+
+			cluster2 {
+				core0 {
+					cpu = <&travis_0>;
+				};
+			};
+		};
+
+		domain-idle-states {
+			cluster0_c3: cluster-0-c3 {
+				compatible = "domain-idle-state";
+
+				entry-latency-us = <800>;
+				exit-latency-us = <700>;
+				min-residency-us = <5000>;
+
+				idle-state-name = "cluster0-c3";
+
+				arm,psci-suspend-param = <0x40010033>;
+			};
+
+			cluster1_c3: cluster-1-c3 {
+				compatible = "domain-idle-state";
+
+				entry-latency-us = <1000>;
+				exit-latency-us = <600>;
+				min-residency-us = <5500>;
+
+				idle-state-name = "cluster1-c3";
+
+				arm,psci-suspend-param = <0x40010033>;
+			};
+
+			cluster2_c3: cluster-2-c3 {
+				compatible = "domain-idle-state";
+
+				entry-latency-us = <500>;
+				exit-latency-us = <1000>;
+				min-residency-us = <3000>;
+
+				idle-state-name = "cluster2-c3";
+
+				arm,psci-suspend-param = <0x40010033>;
+			};
+		};
+
+		idle-states {
+			entry-method = "psci";
+
+			cpu_lit_c2: cpu-lit-c2 {
+				compatible = "arm,idle-state";
+
+				entry-latency-us = <120>;
+				exit-latency-us = <300>;
+				min-residency-us = <1800>;
+
+				idle-state-name = "cpu-lit-c2";
+				local-timer-stop;
+
+				arm,psci-suspend-param = <0x40000003>;
+			};
+
+			cpu_mid_c2: cpu-mid-c2 {
+				compatible = "arm,idle-state";
+
+				entry-latency-us = <120>;
+				exit-latency-us = <300>;
+				min-residency-us = <1600>;
+
+				idle-state-name = "cpu-mid-c2";
+				local-timer-stop;
+
+				arm,psci-suspend-param = <0x40000003>;
+			};
+
+			cpu_big_c2: cpu-big-c2 {
+				compatible = "arm,idle-state";
+
+				entry-latency-us = <80>;
+				exit-latency-us = <400>;
+				min-residency-us = <1300>;
+
+				idle-state-name = "cpu-big-c2";
+				local-timer-stop;
+
+				arm,psci-suspend-param = <0x40000003>;
+			};
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+
+		cpu_pd0: power-domain-cpu0 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_lit_c2>;
+			power-domains = <&cpucl0>;
+		};
+
+		cpu_pd1: power-domain-cpu1 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_lit_c2>;
+			power-domains = <&cpucl0>;
+		};
+
+		cpu_pd2: power-domain-cpu2 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_mid_c2>;
+			power-domains = <&cpucl1>;
+		};
+
+		cpu_pd3: power-domain-cpu3 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_mid_c2>;
+			power-domains = <&cpucl1>;
+		};
+
+		cpu_pd4: power-domain-cpu4 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_mid_c2>;
+			power-domains = <&cpucl1>;
+		};
+
+		cpu_pd5: power-domain-cpu5 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_mid_c2>;
+			power-domains = <&cpucl1>;
+		};
+
+		cpu_pd6: power-domain-cpu6 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cpu_big_c2>;
+			power-domains = <&cpucl2>;
+		};
+
+		cpucl0: power-domain-cluster-0 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cluster0_c3>;
+			power-domains = <&cpu_top_cl>;
+		};
+
+		cpucl1: power-domain-cluster-1 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cluster1_c3>;
+			power-domains = <&cpu_top_cl>;
+		};
+
+		cpucl2: power-domain-cluster-2 {
+			#power-domain-cells = <0>;
+			domain-idle-states = <&cluster2_c3>;
+			power-domains = <&cpu_top_cl>;
+		};
+
+		cpu_top_cl: power-domain-top-cluster {
+			#power-domain-cells = <0>;
+		};
+	};
+
+	soc: soc@0 {
+		compatible = "simple-bus";
+		ranges = <0x0 0x0 0x0 0x0 0x10 0x0>;
+
+		dma-ranges = <0x0 0x0 0x0 0x0 0x10 0x0>;
+
+		#address-cells = <2>;
+		#size-cells = <2>;
+
+		gic: interrupt-controller@9228000 {
+			compatible = "arm,gic-v3";
+			reg = <0x0 0x09228000 0x0 0x10000>,
+			      <0x0 0x092a8000 0x0 0x200000>;
+
+			#address-cells = <0>;
+
+			#interrupt-cells = <4>;
+			interrupt-controller;
+			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH 0>;
+		};
+
+		lsios_uart3: serial@3bdd6000 {
+			compatible = "google,mbu-uart", "snps,dw-apb-uart";
+			reg = <0x0 0x3bdd6000 0x0 0x100>;
+
+			clock-frequency = <200000000>;
+			interrupts = <GIC_SPI 400 IRQ_TYPE_LEVEL_HIGH 0>;
+			reg-io-width = <4>;
+			reg-shift = <2>;
+
+			status = "disabled";
+		};
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW 0>,
+			     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW 0>,
+			     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW 0>,
+			     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW 0>;
+	};
+};

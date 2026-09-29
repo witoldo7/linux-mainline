@@ -3,4 +3,5 @@
 dtb-$(CONFIG_ARCH_GOOGLE) += \
 	lga-blazer.dtb \
 	lga-frankel.dtb \
-	lga-mustang.dtb
+	lga-mustang.dtb \
+	mbu-cubs.dtb

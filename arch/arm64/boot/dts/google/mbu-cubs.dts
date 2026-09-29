@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+/*
+ * Cubs Device Tree (Pixel 11 family)
+ *
+ * Copyright 2025 Google LLC
+ */
+
+/dts-v1/;
+
+#include "mbu-pixel-common.dtsi"
+
+/ {
+	model = "Cubs";
+	compatible = "google,mbu-cubs", "google,mbu";
+};
