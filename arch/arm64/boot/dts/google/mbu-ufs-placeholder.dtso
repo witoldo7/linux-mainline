@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * The Pixel bootloader considers it a fatal error if it doesn't find a
+ * `ufs0` alias, as it adds calibration data to that node. Until the UFS
+ * controller is described or a fixed bootloader is widely available,
+ * create a placeholder node to keep the bootloader happy.
+ *
+ * This mirrors the Linaro pixelscripts workaround for Tensor G5 and is
+ * not meant for upstream.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	ufs: ufs-placeholder {
+	};
+};
+
+&{/aliases} {
+	ufs0 = "/ufs-placeholder";
+};
