@@ -242,6 +242,31 @@
 		#reset-cells = <2>;
 
 		status = "disabled";
+
+		pmic-regulators {
+			compatible = "google,mbu-pmic-regulators";
+
+			regulators {
+				buck_12s: buck_12s {
+					regulator-name = "buck_12s";
+					regulator-min-microvolt = <1500000>;
+					regulator-max-microvolt = <3300000>;
+				};
+
+				ldo_18s: ldo_18s {
+					regulator-name = "ldo_18s";
+					regulator-min-microvolt = <1500000>;
+					regulator-max-microvolt = <3400000>;
+				};
+			};
+		};
+
+		pmic_gpio: gpio {
+			compatible = "google,mbu-pmic-gpio";
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <19>;
+		};
 	};
 
 	psci {
@@ -1082,10 +1107,36 @@
 			gpio-controller;
 			#gpio-cells = <2>;
 			gpio-ranges = <&lsioe_pinctrl 0 0 37>;
-
 			power-domains = <&cpm MBU_PD_LSIO_E_CLI_GPIO>;
 
 			/* Needs the CPM, which is disabled for now. */
+			status = "disabled";
+
+			lsioe_i2c4_func: i2c4-func-pins {
+				pins = "XLSIOE_I23C9_SCL",
+				       "XLSIOE_I23C9_SDA";
+				function = "lsioe_i2c";
+				output-disable;
+				input-enable;
+			};
+		};
+
+		lsioe_i2c4: i2c@3a1ce000 {
+			compatible = "google,mbu-i2c", "snps,designware-i2c";
+			reg = <0x0 0x3a1ce000 0x0 0x100>;
+			interrupt-parent = <&lsioe_multicast_aggr_1>;
+			interrupts = <24>;
+			clocks = <&cpm MBU_LPCM_LSIO_E MBU_LSIO_E_I2C_4_CLK>,
+				 <&cpm MBU_LPCM_LSIO_E MBU_LSIO_E_I2C_4_CFG_CLK>;
+			clock-names = "ref", "pclk";
+			resets = <&cpm MBU_LPCM_LSIO_E MBU_RST_LSIO_E_I2C_4_PERI_CFG_CLK>;
+			power-domains = <&cpm MBU_PD_LSIO_E_CLI_GPIO>;
+			pinctrl-0 = <&lsioe_i2c4_func>;
+			pinctrl-names = "default";
+			i2c-sda-hold-time-ns = <5>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
 			status = "disabled";
 		};
 
