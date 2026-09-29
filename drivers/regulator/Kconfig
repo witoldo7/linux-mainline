@@ -1665,6 +1665,14 @@ config REGULATOR_TPS62360
 	  high-frequency synchronous step down dc-dc converter optimized
 	  for battery-powered portable applications.
 
+config REGULATOR_TPS628600
+	tristate "TI TPS628600 step-down converter"
+	depends on I2C && OF
+	help
+	  This driver supports the TI TPS628600 I2C controlled step-down
+	  converter, used for the display panel core supply on Google Pixel
+	  phones.
+
 config REGULATOR_TPS6286X
 	tristate "TI TPS6286x Power Regulator"
 	depends on I2C && OF
