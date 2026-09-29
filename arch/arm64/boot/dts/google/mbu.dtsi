@@ -304,6 +304,27 @@
 		#address-cells = <2>;
 		#size-cells = <2>;
 
+		pcie_pinctrl: pinctrl@49be000 {
+			compatible = "google,mbu-pcie-pinctrl";
+			reg = <0x0 0x049be000 0x0 0x5000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&pcie_pinctrl 0 0 5>;
+			gpio-reserved-ranges = <4 1>;
+
+			/* Its power domain is managed by the CPM, no driver yet. */
+			status = "disabled";
+		};
+
+		gdmc_pinctrl: pinctrl@6480000 {
+			compatible = "google,mbu-gdmc-pinctrl";
+			reg = <0x0 0x06480000 0x0 0x15000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&gdmc_pinctrl 0 0 21>;
+			gpio-reserved-ranges = <7 8>;
+		};
+
 		gic: interrupt-controller@9228000 {
 			compatible = "arm,gic-v3";
 			reg = <0x0 0x09228000 0x0 0x10000>,
@@ -316,6 +337,56 @@
 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH 0>;
 		};
 
+		aoss_pinctrl: pinctrl@e500000 {
+			compatible = "google,mbu-aoss-pinctrl";
+			reg = <0x0 0x0e500000 0x0 0x7b000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&aoss_pinctrl 0 0 123>;
+			gpio-reserved-ranges = <66 4>;
+		};
+
+		aoss_audio_pinctrl: pinctrl@e680000 {
+			compatible = "google,mbu-aoss-audio-pinctrl";
+			reg = <0x0 0x0e680000 0x0 0x20000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&aoss_audio_pinctrl 0 0 30>;
+			gpio-reserved-ranges = <1 1>, <3 1>, <5 1>, <7 1>, <10 1>,
+					       <14 1>, <18 1>, <27 1>;
+
+			/* Shared with the audio DSP, which may power it down. */
+			status = "disabled";
+		};
+
+		lsioe_pinctrl: pinctrl@3a0e0000 {
+			compatible = "google,mbu-lsioe-pinctrl";
+			reg = <0x0 0x3a0e0000 0x0 0x25000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&lsioe_pinctrl 0 0 37>;
+
+			/* Its power domain is managed by the CPM, no driver yet. */
+			status = "disabled";
+		};
+
+		lsios_pinctrl: pinctrl@3bce0000 {
+			compatible = "google,mbu-lsios-pinctrl";
+			reg = <0x0 0x3bce0000 0x0 0x44000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&lsios_pinctrl 0 0 68>;
+			gpio-reserved-ranges = <51 1>;
+
+			lsios_uart3_func: uart3-func-pins {
+				pins = "XLSIOS_SPIU3_MISO_RXD",
+				       "XLSIOS_SPIU3_MOSI_TXD";
+				function = "lsios_uart3";
+				output-disable;
+				input-enable;
+			};
+		};
+
 		lsios_uart3: serial@3bdd6000 {
 			compatible = "google,mbu-uart", "snps,dw-apb-uart";
 			reg = <0x0 0x3bdd6000 0x0 0x100>;
@@ -324,8 +395,31 @@
 			interrupts = <GIC_SPI 400 IRQ_TYPE_LEVEL_HIGH 0>;
 			reg-io-width = <4>;
 			reg-shift = <2>;
+			pinctrl-0 = <&lsios_uart3_func>;
+			pinctrl-names = "default";
 
 			status = "disabled";
+		};
+
+		hsios_pinctrl: pinctrl@3c280000 {
+			compatible = "google,mbu-hsios-pinctrl";
+			reg = <0x0 0x3c280000 0x0 0xd000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&hsios_pinctrl 0 0 13>;
+			gpio-reserved-ranges = <12 1>;
+
+			/* Its power domain is managed by the CPM, no driver yet. */
+			status = "disabled";
+		};
+
+		hsios_stby_pinctrl: pinctrl@3c2a0000 {
+			compatible = "google,mbu-hsios-stby-pinctrl";
+			reg = <0x0 0x3c2a0000 0x0 0x2000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&hsios_stby_pinctrl 0 0 2>;
+			gpio-reserved-ranges = <1 1>;
 		};
 	};
 
