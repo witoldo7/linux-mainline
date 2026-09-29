@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config PINCTRL_GOOGLE
+	bool
+	select GENERIC_PINCONF
+	select GENERIC_PINMUX_FUNCTIONS
+	select GPIOLIB
+	select GPIOLIB_IRQCHIP
+	select PINMUX
+
+config PINCTRL_GOOGLE_MBU
+	bool "Google Tensor G6 (malibu) pin controller"
+	depends on ARCH_GOOGLE || COMPILE_TEST
+	depends on OF
+	default ARCH_GOOGLE
+	select PINCTRL_GOOGLE
+	help
+	  Pin controller and GPIO driver for the Google Tensor G6 SoC
+	  (malibu), found in the Pixel 11 family.
