@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/watchdog/google,mbu-wdt.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Google Tensor G6 watchdog timer
+
+maintainers:
+  - Witold Olechowski <witusio@gmail.com>
+
+description:
+  Watchdog timer of the Google Tensor G6 (malibu) SoC, a down counter
+  clocked by the always-on oscillator. On expiry it either interrupts the
+  AP, which traps to EL3 to collect CPU state, or signals the GDMC
+  microcontroller, which resets the system.
+
+allOf:
+  - $ref: watchdog.yaml#
+
+properties:
+  compatible:
+    const: google,mbu-wdt
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  google,expire-to-gdmc:
+    type: boolean
+    description:
+      Route the expiry to the GDMC, which resets the system, instead of to
+      the AP.
+
+required:
+  - compatible
+  - reg
+  - clocks
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    watchdog@200c5000 {
+        compatible = "google,mbu-wdt";
+        reg = <0x200c5000 0x1000>;
+        clocks = <&osc>;
+        timeout-sec = <30>;
+        google,expire-to-gdmc;
+    };
