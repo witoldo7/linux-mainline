@@ -17,6 +17,7 @@ struct google_cpm;
 
 /* CPM services */
 #define GOOGLE_CPM_SVC_LPCM		0x08
+#define GOOGLE_CPM_SVC_PMIC		0x0a
 #define GOOGLE_CPM_SVC_MBFS		0x14
 
 /* AP-side services that the CPM sends notifications to */
@@ -33,6 +34,13 @@ int google_cpm_request(struct google_cpm *cpm, u8 service,
 
 int google_cpm_register_notifier(struct google_cpm *cpm, u8 ap_service,
 				 google_cpm_notify_t fn, void *data);
+
+/* Targets of the PMIC service */
+#define GOOGLE_CPM_PMIC_REGULATOR	1
+#define GOOGLE_CPM_PMIC_GPIO		3
+
+int google_cpm_pmic_request(struct google_cpm *cpm, u8 target, u8 cmd, u16 id,
+			    u32 arg, u32 *result);
 
 int google_cpm_mbfs_get_handle(struct google_cpm *cpm, const char *path,
 			       u32 *handle);

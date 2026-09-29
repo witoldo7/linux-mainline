@@ -26,6 +26,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/soc/google/google-cpm.h>
 #include <linux/spinlock.h>
@@ -228,6 +229,60 @@ int google_cpm_register_notifier(struct google_cpm *cpm, u8 ap_service,
 	return -ENOSPC;
 }
 EXPORT_SYMBOL_GPL(google_cpm_register_notifier);
+
+/* PMIC service */
+
+#define PMIC_REQ_ID		GENMASK(15, 0)
+#define PMIC_REQ_CMD		GENMASK(23, 16)
+#define PMIC_REQ_TARGET		GENMASK(31, 24)
+#define PMIC_RSP_STATUS		GENMASK(31, 24)
+
+#define PMIC_STS_OK		0
+#define PMIC_STS_INVALID_ID	3
+#define PMIC_STS_INVALID_VALUE	4
+#define PMIC_STS_NOT_PERMITTED	5
+#define PMIC_STS_TIMEOUT	6
+
+/*
+ * Access the AP PMIC, which sits on a bus owned by the CPM. @result, if not
+ * NULL, receives the first response data word.
+ */
+int google_cpm_pmic_request(struct google_cpm *cpm, u8 target, u8 cmd, u16 id,
+			    u32 arg, u32 *result)
+{
+	u32 req[GOOGLE_CPM_PAYLOAD_WORDS] = {
+		FIELD_PREP(PMIC_REQ_TARGET, target) |
+		FIELD_PREP(PMIC_REQ_CMD, cmd) |
+		FIELD_PREP(PMIC_REQ_ID, id),
+		arg,
+	};
+	u32 resp[GOOGLE_CPM_PAYLOAD_WORDS];
+	int ret;
+
+	ret = google_cpm_request(cpm, GOOGLE_CPM_SVC_PMIC, req, resp);
+	if (ret)
+		return ret;
+
+	switch (FIELD_GET(PMIC_RSP_STATUS, resp[0])) {
+	case PMIC_STS_OK:
+		break;
+	case PMIC_STS_INVALID_ID:
+	case PMIC_STS_INVALID_VALUE:
+		return -EINVAL;
+	case PMIC_STS_NOT_PERMITTED:
+		return -EPERM;
+	case PMIC_STS_TIMEOUT:
+		return -ETIMEDOUT;
+	default:
+		return -EIO;
+	}
+
+	if (result)
+		*result = resp[1];
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(google_cpm_pmic_request);
 
 /* MBFS */
 
@@ -447,6 +502,11 @@ static int google_cpm_probe(struct platform_device *pdev)
 	adev = devm_auxiliary_device_create(dev, "reset", NULL);
 	if (!adev)
 		return dev_err_probe(dev, -ENODEV, "failed to create reset device\n");
+
+	/* Clients described in the device tree, like the AP PMIC. */
+	ret = devm_of_platform_populate(dev);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to populate children\n");
 
 	return 0;
 }
