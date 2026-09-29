@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/google,dcsda.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Google dcsda 1080x2424 AMOLED DSI panel
+
+maintainers:
+  - Witold Olechowski <witusio@gmail.com>
+
+description:
+  Command mode AMOLED panel with DSC compression over four MIPI DSI lanes,
+  used in the Pixel 11 family.
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    const: google,dcsda
+
+  reg:
+    maxItems: 1
+
+  reset-gpios: true
+
+  vddi-supply:
+    description: I/O supply
+
+  vci-supply:
+    description: Analog supply
+
+  vddd-supply:
+    description: Digital core supply
+
+  port: true
+
+required:
+  - compatible
+  - reg
+  - reset-gpios
+  - vddi-supply
+  - vci-supply
+  - vddd-supply
+  - port
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    dsi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        panel@0 {
+            compatible = "google,dcsda";
+            reg = <0>;
+            reset-gpios = <&pmic_gpio 3 GPIO_ACTIVE_LOW>;
+            vddi-supply = <&vddi>;
+            vci-supply = <&vci>;
+            vddd-supply = <&vddd>;
+
+            port {
+                panel_in: endpoint {
+                    remote-endpoint = <&dsi0_out>;
+                };
+            };
+        };
+    };
