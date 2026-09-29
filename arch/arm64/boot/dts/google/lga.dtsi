@@ -401,15 +401,32 @@
 			status = "disabled";
 		};
 
+		inftcu_pulse_aggr_0_intr: interrupt-controller@350d1000 {
+			compatible = "google,lga-pulse-gia";
+			reg = <0x0 0x350d1000 0x0 0x14>;
+			interrupt-parent = <&inftcu_multicast_aggr_3_intr>;
+			interrupts = <0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		inftcu_multicast_aggr_3_intr: interrupt-controller@350d7000 {
+			compatible = "google,lga-level-gia";
+			reg = <0x0 0x350d7000 0x0 0x10>;
+			interrupts = <GIC_SPI 156 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
 		inf_smmu: iommu@35100000 {
 			compatible = "arm,smmu-v3";
 			reg = <0x0 0x35100000 0x0 0x40000>;
 			dma-coherent;
+			interrupts-extended = <&inftcu_pulse_aggr_0_intr 0>,
+					      <&inftcu_pulse_aggr_0_intr 2>,
+					      <&inftcu_pulse_aggr_0_intr 7>;
+			interrupt-names = "eventq", "gerror", "priq";
 			/*
-			 * The eventq, gerror and priq interrupts are routed via
-			 * the Google GIA interrupt aggregators, which have no
-			 * upstream driver yet.
-			 *
 			 * Power and suspend/resume save/restore are handled by
 			 * firmware, so there is no power-domains property.
 			 */
