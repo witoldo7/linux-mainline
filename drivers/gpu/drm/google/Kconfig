@@ -9,3 +9,16 @@ config DRM_GOOGLE_MBU_DSI
 	help
 	  Glue for the Synopsys DesignWare MIPI DSI-2 host controllers of the
 	  Google Tensor G6 (malibu) SoC.
+
+config DRM_GOOGLE_MBU_DPU
+	tristate "Google Tensor G6 display controller"
+	depends on DRM_GOOGLE_MBU_DSI
+	select DRM_CLIENT_SELECTION
+	select DRM_GEM_DMA_HELPER
+	select DRM_KMS_HELPER
+	select DRM_BRIDGE
+	select DRM_PANEL_BRIDGE
+	help
+	  Driver for the VeriSilicon DC9400 display processing unit of the
+	  Google Tensor G6 (malibu) SoC. It drives one layer on the built-in
+	  command mode DSI panel, with Display Stream Compression.
