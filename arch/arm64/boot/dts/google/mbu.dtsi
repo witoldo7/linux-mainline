@@ -11,6 +11,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/power/google,mbu-power.h>
+#include <dt-bindings/reset/google,mbu-cpm.h>
 
 / {
 	#address-cells = <2>;
@@ -238,6 +239,7 @@
 		mbox-names = "tx", "rx";
 		#clock-cells = <2>;
 		#power-domain-cells = <1>;
+		#reset-cells = <2>;
 
 		status = "disabled";
 	};
